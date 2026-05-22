@@ -1,1 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --vegas-blue: #185FA5;
+  --vegas-blue-dark: #0C447C;
+  --vegas-blue-light: #E6F1FB;
+  --sidebar-width: 220px;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  * {
+    @apply border-gray-200;
+  }
+}
+
+@layer components {
+  /* Botões */
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#185FA5] text-white border border-[#185FA5] hover:bg-[#0C447C] hover:border-[#0C447C] transition-colors cursor-pointer;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors cursor-pointer;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs rounded-md;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white border border-gray-200 rounded-xl;
+  }
+
+  .card-header {
+    @apply px-5 py-4 border-b border-gray-100 flex items-center justify-between;
+  }
+
+  .card-title {
+    @apply text-sm font-medium text-gray-900 flex items-center gap-2;
+  }
+
+  .card-body {
+    @apply p-5;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5] transition-colors;
+  }
+
+  .select {
+    @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5] transition-colors;
+  }
+
+  .textarea {
+    @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5] transition-colors resize-vertical min-h-[80px];
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* Metric cards */
+  .metric-card {
+    @apply bg-gray-50 rounded-xl p-4;
+  }
+
+  .metric-label {
+    @apply text-xs text-gray-500 mb-1.5;
+  }
+
+  .metric-value {
+    @apply text-2xl font-semibold text-gray-900;
+  }
+
+  /* Navigation */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 cursor-pointer transition-colors;
+  }
+
+  .nav-item-active {
+    @apply bg-[#E6F1FB] text-[#185FA5] font-medium;
+  }
+
+  /* Table rows */
+  .table-row {
+    @apply flex items-center gap-4 px-5 py-3 border-b border-gray-50 hover:bg-gray-50/50 transition-colors text-sm last:border-0;
+  }
+
+  .table-header {
+    @apply flex items-center gap-4 px-5 py-2.5 bg-gray-50 text-xs text-gray-500 font-medium;
+  }
+
+  /* Form groups */
+  .form-group {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .form-label {
+    @apply text-xs font-medium text-gray-600;
+  }
+
+  /* SLA states */
+  .sla-ok {
+    @apply text-green-600;
+  }
+
+  .sla-warning {
+    @apply text-amber-600;
+  }
+
+  .sla-danger {
+    @apply text-red-600;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
