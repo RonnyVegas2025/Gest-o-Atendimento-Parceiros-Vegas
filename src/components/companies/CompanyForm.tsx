@@ -85,7 +85,7 @@ export function CompanyForm({ partners, company, onSuccess, onCancel }: Props) {
             </div>
             <div className="form-group">
               <label className="form-label">Nome fantasia</label>
-              <input className="input" value={form.trade_name} onChange={e => set('trade_name', e.target.value)} />
+            <input className="input" value={form.trade_name ?? ''} onChange={e => set('trade_name', e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">CNPJ *</label>
