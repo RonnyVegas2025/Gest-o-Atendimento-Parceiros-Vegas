@@ -118,7 +118,7 @@ export default function NovoAtendimentoPage() {
                   <input
                     className="input"
                     placeholder="Nome do funcionário"
-                    value={form.employee_name}
+                    value={form.employee_name ?? ''}
                     onChange={e => set('employee_name', e.target.value)}
                   />
                 </div>
@@ -204,4 +204,3 @@ export default function NovoAtendimentoPage() {
     </div>
   )
 }
-
