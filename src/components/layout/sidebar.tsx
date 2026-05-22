@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Building2, Ticket, Plus,
-  Users, BarChart3, Handshake, LogOut, CircleDot
+  Users, BarChart3, Handshake, LogOut
 } from 'lucide-react'
 
 const navItems = [
@@ -32,7 +32,6 @@ export default function Sidebar() {
 
   return (
     <aside className="w-[220px] min-w-[220px] bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
-      {/* Logo */}
       <div className="px-5 py-5 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-[#185FA5] flex items-center justify-center text-white text-sm font-bold">
@@ -45,7 +44,6 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
         {navItems.map(section => (
           <div key={section.label}>
@@ -57,15 +55,11 @@ export default function Sidebar() {
                 const isActive = item.href === '/atendimentos'
                   ? pathname === '/atendimentos' || (pathname.startsWith('/atendimentos/') && pathname !== '/atendimentos/novo')
                   : pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
-
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={cn(
-                      'nav-item',
-                      isActive && 'nav-item-active'
-                    )}
+                    className={cn('nav-item', isActive && 'nav-item-active')}
                   >
                     <item.icon size={15} />
                     {item.label}
@@ -77,7 +71,6 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* User footer */}
       <div className="border-t border-gray-100 p-3">
         <div className="flex items-center gap-2.5 px-2 py-2 mb-1">
           <div className="w-7 h-7 rounded-full bg-[#E6F1FB] flex items-center justify-center text-[#185FA5] text-xs font-semibold">
