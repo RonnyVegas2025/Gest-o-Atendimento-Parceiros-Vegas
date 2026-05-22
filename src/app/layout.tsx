@@ -1,24 +1,21 @@
-import type { Metadata } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
-import './globals.css'
-import { AuthProvider } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import Sidebar from '@/components/layout/Sidebar'
 
-const inter = Inter({ variable: '--font-geist-sans', subsets: ['latin'] })
-const jetbrainsMono = JetBrains_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
+export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-export const metadata: Metadata = {
-  title: 'Portal Parceiros Vegas',
-  description: 'Gestão de atendimentos especiais Vegas Card',
-}
+  if (!user) {
+    redirect('/login')
+  }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
-      </body>
-    </html>
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto">
+        {children}
+      </main>
+    </div>
   )
 }
