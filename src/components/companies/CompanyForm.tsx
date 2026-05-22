@@ -85,7 +85,7 @@ export function CompanyForm({ partners, company, onSuccess, onCancel }: Props) {
             </div>
             <div className="form-group">
               <label className="form-label">Nome fantasia</label>
-            <input className="input" value={form.trade_name ?? ''} onChange={e => set('trade_name', e.target.value)} />
+              <input className="input" value={form.trade_name ?? ''} onChange={e => set('trade_name', e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">CNPJ *</label>
@@ -121,11 +121,11 @@ export function CompanyForm({ partners, company, onSuccess, onCancel }: Props) {
             </div>
             <div className="form-group">
               <label className="form-label">Telefone</label>
-              <input className="input" placeholder="(11) 99999-0000" value={form.contact_phone} onChange={e => set('contact_phone', e.target.value)} />
+              <input className="input" placeholder="(11) 99999-0000" value={form.contact_phone ?? ''} onChange={e => set('contact_phone', e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">E-mail</label>
-              <input className="input" type="email" value={form.contact_email} onChange={e => set('contact_email', e.target.value)} />
+              <input className="input" type="email" value={form.contact_email ?? ''} onChange={e => set('contact_email', e.target.value)} />
             </div>
           </div>
         </div>
@@ -178,4 +178,3 @@ export function CompanyForm({ partners, company, onSuccess, onCancel }: Props) {
     </form>
   )
 }
-
