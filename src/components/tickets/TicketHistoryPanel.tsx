@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatDate, timeAgo } from '@/lib/utils'
 import { STATUS_LABELS } from '@/lib/constants'
 import type { TicketHistory } from '@/lib/types'
-import { Timeline, Send } from 'lucide-react'
+import { History, Send } from 'lucide-react'
 
 interface Props {
   ticketId: string
@@ -114,4 +114,3 @@ export default function TicketHistoryPanel({ ticketId, history: initialHistory }
     </div>
   )
 }
-
