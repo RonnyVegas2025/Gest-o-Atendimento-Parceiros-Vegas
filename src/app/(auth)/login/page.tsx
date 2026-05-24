@@ -24,13 +24,12 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+    window.location.href = '/dashboard'
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#185FA5] text-white text-xl font-bold mb-4">
             V
@@ -39,14 +38,13 @@ export default function LoginPage() {
           <p className="text-sm text-gray-500 mt-1">Portal de Atendimento Parceiros</p>
         </div>
 
-        {/* Form */}
-        <div className="card p-6">
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
           <form onSubmit={handleLogin} className="space-y-4">
-            <div className="form-group">
-              <label className="form-label">E-mail</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600">E-mail</label>
               <input
                 type="email"
-                className="input"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5]"
                 placeholder="seu@email.com.br"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -55,11 +53,11 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Senha</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600">Senha</label>
               <input
                 type="password"
-                className="input"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5]"
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -77,7 +75,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full justify-center"
+              className="w-full flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium bg-[#185FA5] text-white hover:bg-[#0C447C] transition-colors disabled:opacity-60"
             >
               {loading ? 'Entrando…' : 'Entrar'}
             </button>
@@ -91,4 +89,3 @@ export default function LoginPage() {
     </div>
   )
 }
-
