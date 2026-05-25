@@ -5,7 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, formatDate, timeAgo, formatDuration } from '@/lib/utils'
 import { STATUS_LABELS, STATUS_COLORS, PRIORITY_DOT } from '@/lib/constants'
 import type { TicketWithDetails, TicketHistory } from '@/lib/types'
-import { ArrowLeft, Clock, Building2, Send, ArrowRight, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Clock, Building2, Send, ArrowRight, CheckCircle2, XCircle, AlertTriangle, Paperclip } from 'lucide-react'
+import FileUpload from '@/components/tickets/FileUpload'
+import PasteTextarea from '@/components/ui/PasteTextarea'
 import Link from 'next/link'
 
 const DEPARTMENTS = [
@@ -87,6 +89,7 @@ export default function TicketDetailPage() {
   const [saving, setSaving] = useState(false)
   const [obsText, setObsText] = useState('')
   const [savingObs, setSavingObs] = useState(false)
+  const [attachments, setAttachments] = useState<any[]>([])
 
   useEffect(() => { fetchData() }, [id])
 
@@ -99,6 +102,13 @@ export default function TicketDetailPage() {
     setHistory((h as TicketHistory[]) ?? [])
     setLoading(false)
     if (t) setActionDept(t.department)
+    // Load attachments
+    const { data: atts } = await supabase
+      .from('ticket_attachments')
+      .select('*')
+      .eq('ticket_id', id)
+      .order('created_at', { ascending: true })
+    setAttachments(atts ?? [])
   }
 
   async function handleAction() {
@@ -260,12 +270,12 @@ export default function TicketDetailPage() {
               {/* Adicionar observação */}
               <div className="border-t border-gray-100 pt-4">
                 <div className="text-xs font-medium text-gray-600 mb-2">Adicionar observação</div>
-                <textarea
-                  className="textarea text-sm"
-                  rows={2}
-                  placeholder="Descreva uma atualização ou informação importante…"
+                <PasteTextarea
                   value={obsText}
-                  onChange={e => setObsText(e.target.value)}
+                  onChange={setObsText}
+                  ticketId={id}
+                  placeholder="Descreva uma atualização — use Ctrl+V para colar prints do WhatsApp…"
+                  rows={2}
                 />
                 <div className="flex justify-end mt-2">
                   <button onClick={handleObs} disabled={!obsText.trim() || savingObs} className="btn-primary btn-sm">
@@ -326,12 +336,12 @@ export default function TicketDetailPage() {
 
                   {/* Observação da ação */}
                   {actionStatus && (
-                    <textarea
-                      className="textarea text-xs"
-                      rows={2}
-                      placeholder="Observação sobre esta ação (opcional)…"
+                    <PasteTextarea
                       value={actionObs}
-                      onChange={e => setActionObs(e.target.value)}
+                      onChange={setActionObs}
+                      ticketId={id}
+                      placeholder="Observação sobre esta ação — Ctrl+V para colar imagens…"
+                      rows={2}
                     />
                   )}
 
@@ -401,6 +411,22 @@ export default function TicketDetailPage() {
             </div>
           </div>
 
+        </div>
+
+          {/* Anexos */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title"><Paperclip size={14} /> Anexos</span>
+              <span className="text-xs text-gray-400">{attachments.length} arquivo(s)</span>
+            </div>
+            <div className="card-body">
+              <FileUpload
+                ticketId={id}
+                existingAttachments={attachments}
+                onUploaded={att => setAttachments(prev => [...prev, att])}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
