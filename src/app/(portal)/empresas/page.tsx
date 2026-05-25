@@ -71,11 +71,11 @@ export default function EmpresasPage() {
 
     setCnpjLoading(true)
     try {
-      const res = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpj}`)
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
       const data = await res.json()
 
-      if (data.status === 'ERROR') {
-        setCnpjError('CNPJ não encontrado na Receita Federal.')
+      if (data.message || data.type === 'service_error') {
+        setCnpjError('CNPJ não encontrado ou inválido.')
         setCnpjLoading(false)
         return
       }
@@ -83,11 +83,11 @@ export default function EmpresasPage() {
       setForm(prev => ({
         ...prev,
         cnpj: raw,
-        legal_name:  data.nome ?? prev.legal_name,
-        trade_name:  data.fantasia ?? prev.trade_name,
-        city:        data.municipio ?? prev.city,
-        state:       data.uf ?? prev.state,
-        contact_phone: data.telefone ?? prev.contact_phone,
+        legal_name:    data.razao_social ?? prev.legal_name,
+        trade_name:    data.nome_fantasia ?? prev.trade_name,
+        city:          data.municipio ?? prev.city,
+        state:         data.uf ?? prev.state,
+        contact_phone: data.ddd_telefone_1 ? `(${data.ddd_telefone_1}) ${data.telefone_1 ?? ''}`.trim() : prev.contact_phone,
         contact_email: data.email?.toLowerCase() ?? prev.contact_email,
       }))
     } catch {
