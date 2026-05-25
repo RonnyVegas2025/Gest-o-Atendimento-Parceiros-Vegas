@@ -8,6 +8,7 @@ export type UserRole =
 export type CompanyStatus = 'ativa' | 'inativa' | 'bloqueada'
 
 export type TicketStatus =
+  | 'rascunho'
   | 'aberto'
   | 'em_analise'
   | 'encaminhado'
@@ -130,4 +131,3 @@ export interface DashboardSummary {
   sla_breached: number
   avg_resolution_hours_week: number | null
 }
-
