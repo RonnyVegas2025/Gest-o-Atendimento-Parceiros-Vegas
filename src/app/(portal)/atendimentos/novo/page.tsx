@@ -270,8 +270,7 @@ export default function NovoAtendimentoPage() {
                 <PasteTextarea
                   value={form.description}
                   onChange={v => set('description', v)}
-                  ticketId="draft"
-                  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints diretamente…"
+                  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints diretamente..."
                   rows={4}
                   required
                 />
