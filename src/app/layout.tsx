@@ -1,21 +1,20 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-import Sidebar from '@/components/layout/Sidebar'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
 
-export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+const inter = Inter({ subsets: ['latin'] })
 
-  if (!user) {
-    redirect('/login')
-  }
+export const metadata: Metadata = {
+  title: 'Portal Parceiros Vegas',
+  description: 'Gestão de atendimentos especiais Vegas Card',
+}
 
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+    <html lang="pt-BR">
+      <body className={inter.className}>
         {children}
-      </main>
-    </div>
+      </body>
+    </html>
   )
 }
