@@ -179,9 +179,8 @@ export default function TicketDetailPage() {
   const isClosed = ['finalizado', 'cancelado'].includes(ticket.status)
   const nextActions = NEXT_STATUSES[ticket.status] ?? []
   const currentDeptLabel = DEPARTMENTS.find(d => d.value === ticket.department)?.label ?? ticket.department
-  const sla = ticket.sla_deadline ? Math.min(100, Math.round(
-    (ticket.open_seconds / ((new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()) / 1000)) * 100
-  )) : 0
+  const slaTotal = ticket.sla_deadline ? (new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()) / 1000 : 0
+  const sla = slaTotal > 0 ? Math.min(100, Math.round((ticket.open_seconds / slaTotal) * 100)) : 0
 
   return (
     <div className="p-6">
