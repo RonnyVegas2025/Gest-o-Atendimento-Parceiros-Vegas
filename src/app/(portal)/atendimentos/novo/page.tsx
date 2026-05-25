@@ -45,8 +45,8 @@ export default function NovoAtendimentoPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
-    requester_name: '', employee_name: '', employee_cpf: '',
-    type_label: 'Segunda via cartão', department: 'comercial',
+    requester_name: '', employee_name: '',
+    type_label: 'Segunda via cartao', department: 'comercial',
     priority: 'media', description: '',
   })
 
@@ -119,7 +119,6 @@ export default function NovoAtendimentoPage() {
       company_id:     selectedCompany?.id ?? null,
       requester_name: form.requester_name || 'Não informado',
       employee_name:  form.employee_name || null,
-      employee_cpf:   form.employee_cpf || null,
       type:           typeDb,
       description:    `[${form.type_label}] ${form.description}`,
       department:     form.department,
@@ -217,10 +216,6 @@ export default function NovoAtendimentoPage() {
                 <div className="form-group">
                   <label className="form-label">Colaborador envolvido</label>
                   <input className="input" placeholder="Nome do funcionário" value={form.employee_name} onChange={e => set('employee_name', e.target.value)} />
-                </div>
-                <div className="form-group col-span-2">
-                  <label className="form-label">CPF do colaborador</label>
-                  <input className="input font-mono" placeholder="000.000.000-00" value={form.employee_cpf} onChange={e => set('employee_cpf', e.target.value)} />
                 </div>
               </div>
             </div>
