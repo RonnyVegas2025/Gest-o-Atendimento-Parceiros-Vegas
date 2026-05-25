@@ -30,29 +30,34 @@ const DEPT_COLORS: Record<string, string> = {
   logistica:   'bg-orange-100 text-orange-700',
 }
 
-const NEXT_STATUSES: Record<string, { value: string; label: string; color: string }[]> = {
-  aberto:             [{ value: 'em_analise', label: 'Iniciar análise', color: 'btn-primary' }],
-  em_analise:         [
-    { value: 'em_andamento',       label: 'Colocar em andamento', color: 'btn-primary' },
-    { value: 'encaminhado',        label: 'Encaminhar para depto', color: 'btn' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno',      color: 'btn' },
-    { value: 'finalizado',         label: 'Finalizar',             color: 'btn' },
+const NEXT_STATUSES: Record<string, { value: string; label: string; color: string; icon?: string }[]> = {
+  aberto: [
+    { value: 'em_analise', label: 'Iniciar análise', color: 'btn-primary', icon: 'play' },
   ],
-  encaminhado:        [
-    { value: 'em_andamento',       label: 'Retornou — em andamento', color: 'btn-primary' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno',         color: 'btn' },
+  em_analise: [
+    { value: 'em_andamento',       label: '▶ Colocar em andamento',     color: 'btn-primary' },
+    { value: 'encaminhado',        label: '→ Encaminhar para depto',    color: 'btn' },
+    { value: 'aguardando_retorno', label: '⏸ Aguardar retorno',         color: 'btn' },
+    { value: 'finalizado',         label: '✓ Finalizar atendimento',    color: 'btn' },
   ],
-  em_andamento:       [
-    { value: 'finalizado',         label: 'Finalizar atendimento', color: 'btn-primary' },
-    { value: 'encaminhado',        label: 'Encaminhar para depto', color: 'btn' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno',      color: 'btn' },
+  encaminhado: [
+    { value: 'em_andamento',       label: '✅ Depto concluiu — retomar para ADM Comercial', color: 'btn-primary' },
+    { value: 'encaminhado',        label: '→ Reencaminhar para outro depto',                color: 'btn' },
+    { value: 'aguardando_retorno', label: '⏸ Aguardar retorno',                             color: 'btn' },
+    { value: 'finalizado',         label: '✓ Finalizar diretamente',                        color: 'btn' },
+  ],
+  em_andamento: [
+    { value: 'finalizado',         label: '✓ Finalizar atendimento',    color: 'btn-primary' },
+    { value: 'encaminhado',        label: '→ Encaminhar para depto',    color: 'btn' },
+    { value: 'aguardando_retorno', label: '⏸ Aguardar retorno cliente', color: 'btn' },
   ],
   aguardando_retorno: [
-    { value: 'em_andamento', label: 'Retomou — em andamento', color: 'btn-primary' },
-    { value: 'encaminhado',  label: 'Encaminhar para depto',  color: 'btn' },
+    { value: 'em_andamento',       label: '▶ Cliente retornou — retomar', color: 'btn-primary' },
+    { value: 'encaminhado',        label: '→ Encaminhar para depto',      color: 'btn' },
+    { value: 'finalizado',         label: '✓ Finalizar atendimento',      color: 'btn' },
   ],
-  finalizado:  [],
-  cancelado:   [],
+  finalizado: [],
+  cancelado:  [],
 }
 
 const TL_COLORS: Record<string, string> = {
@@ -100,17 +105,20 @@ export default function TicketDetailPage() {
     if (!actionStatus) return
     setSaving(true)
 
-    const needsDept = actionStatus === 'encaminhado'
+    const isForwarding = actionStatus === 'encaminhado'
+    const isReturning = actionStatus === 'em_andamento' && ticket?.status === 'encaminhado'
     const deptLabel = DEPARTMENTS.find(d => d.value === actionDept)?.label ?? actionDept
     const statusLabel = ALLOWED_TRANSITIONS_LABELS[actionStatus] ?? actionStatus
 
     let actionText = `Status alterado para "${statusLabel}"`
-    if (needsDept) actionText = `Encaminhado para o departamento: ${deptLabel}`
-    if (actionObs) actionText += ` — ${actionObs}`
+    if (isForwarding) actionText = `📤 Encaminhado para: ${deptLabel}`
+    if (isReturning)  actionText = `📥 ${deptLabel} concluiu — retomado pelo ADM Comercial`
+    if (actionObs) actionText += ` · ${actionObs}`
 
     // Update ticket
     const updatePayload: Record<string, string> = { status: actionStatus }
-    if (needsDept) updatePayload.department = actionDept
+    if (isForwarding) updatePayload.department = actionDept
+    if (isReturning)  updatePayload.department = 'comercial'
 
     await supabase.from('tickets').update(updatePayload).eq('id', id)
 
