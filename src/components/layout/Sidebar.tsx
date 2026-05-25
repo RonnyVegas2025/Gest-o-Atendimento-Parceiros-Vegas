@@ -1,24 +1,23 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Building2, Ticket, Plus,
-  Users, BarChart3, Handshake, LogOut
+  Users, BarChart3, Handshake
 } from 'lucide-react'
 
 const navItems = [
   { label: 'Visão geral', items: [
-    { href: '/dashboard',    label: 'Dashboard',        icon: LayoutDashboard },
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   ]},
   { label: 'Operação', items: [
     { href: '/atendimentos/novo', label: 'Novo atendimento', icon: Plus },
     { href: '/atendimentos',     label: 'Atendimentos',      icon: Ticket },
   ]},
   { label: 'Cadastros', items: [
-    { href: '/empresas',   label: 'Empresas',  icon: Building2 },
-    { href: '/parceiros',  label: 'Parceiros', icon: Handshake },
+    { href: '/empresas',  label: 'Empresas',  icon: Building2 },
+    { href: '/parceiros', label: 'Parceiros', icon: Handshake },
   ]},
   { label: 'Admin', items: [
     { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
@@ -28,7 +27,6 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { profile, signOut } = useAuth()
 
   return (
     <aside className="w-[220px] min-w-[220px] bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
@@ -71,27 +69,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-gray-100 p-3">
-        <div className="flex items-center gap-2.5 px-2 py-2 mb-1">
-          <div className="w-7 h-7 rounded-full bg-[#E6F1FB] flex items-center justify-center text-[#185FA5] text-xs font-semibold">
-            {profile?.full_name?.slice(0, 2).toUpperCase() ?? 'U'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-gray-900 truncate">
-              {profile?.full_name ?? 'Usuário'}
-            </div>
-            <div className="text-[10px] text-gray-400 truncate capitalize">
-              {profile?.role?.replace('_', ' ') ?? ''}
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={signOut}
-          className="nav-item w-full text-red-500 hover:text-red-700 hover:bg-red-50"
-        >
-          <LogOut size={14} />
-          Sair
-        </button>
+      <div className="border-t border-gray-100 p-4">
+        <div className="text-xs text-gray-400 text-center">Vegas Card © {new Date().getFullYear()}</div>
       </div>
     </aside>
   )
