@@ -1,299 +1,215 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { COMPANY_STATUS_COLORS, COMPANY_STATUS_LABELS } from '@/lib/constants'
-import { cn, formatDate } from '@/lib/utils'
-import { Plus, X, Search, Building2, Loader2 } from 'lucide-react'
-import type { Company, Partner } from '@/lib/types'
-
-interface CompanyForm {
-  legal_name: string
-  trade_name: string
-  cnpj: string
-  city: string
-  state: string
-  contact_name: string
-  contact_phone: string
-  contact_email: string
-  partner_id: string
-  status: string
-  notes: string
-}
-
-const EMPTY_FORM: CompanyForm = {
-  legal_name: '', trade_name: '', cnpj: '', city: '', state: '',
-  contact_name: '', contact_phone: '', contact_email: '',
-  partner_id: '', status: 'ativa', notes: '',
-}
-
-const ESTADOS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
+import { useState, useEffect, useCallback } from 'react'
+import AppShell from '@/components/AppShell'
+import { createBrowserClient } from '@supabase/ssr'
+import { useRouter } from 'next/navigation'
 
 export default function EmpresasPage() {
-  const supabase = createClient()
-  const [companies, setCompanies] = useState<Company[]>([])
-  const [partners, setPartners] = useState<Partner[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [cnpjLoading, setCnpjLoading] = useState(false)
-  const [cnpjError, setCnpjError] = useState('')
-  const [error, setError] = useState('')
-  const [search, setSearch] = useState('')
-  const [form, setForm] = useState<CompanyForm>(EMPTY_FORM)
+  const router = useRouter()
+  const [empresas, setEmpresas]   = useState<any[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [busca, setBusca]         = useState('')
+  const [filtroProd, setFiltroProd] = useState('')
+  const [filtroUF, setFiltroUF]   = useState('')
+  const [total, setTotal]         = useState(0)
+  const [page, setPage]           = useState(0)
+  const PER_PAGE = 20
 
-  useEffect(() => {
-    fetchCompanies()
-    supabase.from('partners').select('*').eq('active', true).order('name')
-      .then(({ data }) => setPartners((data as Partner[]) ?? []))
-  }, [])
-
-  async function fetchCompanies() {
-    setLoading(true)
-    const { data } = await supabase
-      .from('companies')
-      .select('*, partner:partner_id(name)')
-      .order('legal_name')
-    setCompanies((data as Company[]) ?? [])
-    setLoading(false)
-  }
-
-  function setField(field: string, value: string) {
-    setForm(prev => ({ ...prev, [field]: value }))
-  }
-
-  // Busca CNPJ na ReceitaWS
-  async function handleCNPJ(raw: string) {
-    const cnpj = raw.replace(/\D/g, '')
-    setField('cnpj', raw)
-    setCnpjError('')
-
-    if (cnpj.length !== 14) return
-
-    setCnpjLoading(true)
-    try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
-      const data = await res.json()
-
-      if (data.message || data.type === 'service_error') {
-        setCnpjError('CNPJ não encontrado ou inválido.')
-        setCnpjLoading(false)
-        return
-      }
-
-      setForm(prev => ({
-        ...prev,
-        cnpj: raw,
-        legal_name:    data.razao_social ?? prev.legal_name,
-        trade_name:    data.nome_fantasia ?? prev.trade_name,
-        city:          data.municipio ?? prev.city,
-        state:         data.uf ?? prev.state,
-        contact_phone: data.ddd_telefone_1 ? `(${data.ddd_telefone_1}) ${data.telefone_1 ?? ''}`.trim() : prev.contact_phone,
-        contact_email: data.email?.toLowerCase() ?? prev.contact_email,
-      }))
-    } catch {
-      setCnpjError('Erro ao consultar CNPJ. Preencha manualmente.')
-    } finally {
-      setCnpjLoading(false)
-    }
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setSaving(true)
-
-    const payload = {
-      ...form,
-      cnpj: form.cnpj.replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'),
-      partner_id: form.partner_id || null,
-      trade_name: form.trade_name || null,
-      contact_phone: form.contact_phone || null,
-      contact_email: form.contact_email || null,
-      notes: form.notes || null,
-    }
-
-    const { error: err } = await supabase.from('companies').insert(payload)
-    setSaving(false)
-
-    if (err) { setError(err.message); return }
-
-    setShowModal(false)
-    setForm(EMPTY_FORM)
-    fetchCompanies()
-  }
-
-  const filtered = companies.filter(c =>
-    !search ||
-    c.legal_name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.trade_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    c.cnpj.includes(search) ||
-    c.city.toLowerCase().includes(search.toLowerCase())
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
+  const load = useCallback(async () => {
+    setLoading(true)
+    let query = supabase
+      .from('empresas_conveniadas')
+      .select('id, cnpj, nome_fantasia, razao_social, uf, municipio, id_grupo, dados_enriquecidos, ativo, empresas_produtos(produto_nome)', { count: 'exact' })
+      .eq('ativo', true)
+      .order('nome_fantasia')
+      .range(page * PER_PAGE, (page + 1) * PER_PAGE - 1)
+
+    if (busca.trim()) {
+      // Busca por CNPJ, fantasia, razão social ou produto
+      const b = busca.trim().replace(/\D/g, '') // tenta como CNPJ
+      if (b.length >= 8) {
+        query = query.ilike('cnpj', `%${b}%`)
+      } else {
+        query = query.or(
+          `nome_fantasia.ilike.%${busca.trim()}%,razao_social.ilike.%${busca.trim()}%`
+        )
+      }
+    }
+
+    if (filtroUF) query = query.eq('uf', filtroUF)
+
+    const { data, count, error } = await query
+    if (!error) {
+      // Filtra por produto se necessário (client-side pois é relação)
+      let result = data ?? []
+      if (filtroProd) {
+        result = result.filter((e: any) =>
+          e.empresas_produtos?.some((p: any) => p.produto_nome === filtroProd)
+        )
+      }
+      setEmpresas(result)
+      setTotal(count ?? 0)
+    }
+    setLoading(false)
+  }, [busca, filtroUF, filtroProd, page])
+
+  useEffect(() => { load() }, [load])
+
+  const PRODUTOS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Combustível Frota','Farmácia','Cartão Natal']
+  const UFS = ['PR','SP','RS','SC','MG','RJ','GO','DF','MS','MT','BA','RN','ES']
+
+  const PROD_COLORS: Record<string,{bg:string;color:string}> = {
+    'Alimentação':       { bg:'#E1F5EE', color:'#0F6E56' },
+    'Vegas Plus':        { bg:'#EEEDFE', color:'#5B52C2' },
+    'Vegas Day':         { bg:'#E6F1FB', color:'#185FA5' },
+    'Aux. Combustível':  { bg:'#FAEEDA', color:'#854F0B' },
+    'Combustível Frota': { bg:'#FAECE7', color:'#993C1D' },
+    'Farmácia':          { bg:'#FCE8F0', color:'#8C1D4E' },
+    'Cartão Natal':      { bg:'#FEF3E2', color:'#7A4200' },
+  }
+
   return (
-    <div className="p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <AppShell>
+      <header style={{ background:'#fff', borderBottom:'1px solid #EAEAF0', padding:'14px 26px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:5 }}>
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Empresas</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{companies.length} empresas cadastradas</p>
+          <div style={{ fontSize:15, fontWeight:800, color:'#2C2A40' }}>Empresas Conveniadas</div>
+          <div style={{ fontSize:11.5, color:'#AEADC0', marginTop:2 }}>{total} empresas cadastradas · Nex7 Participações</div>
         </div>
-        <button onClick={() => { setShowModal(true); setForm(EMPTY_FORM); setError(''); setCnpjError('') }} className="btn-primary">
-          <Plus size={15} /> Nova empresa
-        </button>
-      </div>
+      </header>
 
-      {/* Busca */}
-      <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input className="input pl-9" placeholder="Buscar por nome, CNPJ ou cidade…" value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
-
-      {/* Tabela */}
-      <div className="card">
-        <div className="table-header grid" style={{ gridTemplateColumns: '1fr 140px 160px 90px' }}>
-          <span>Empresa</span><span>Cidade / UF</span><span>Parceiro</span><span>Status</span>
-        </div>
-        {loading ? (
-          <div className="py-12 text-center text-sm text-gray-400">Carregando…</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-12 text-center text-sm text-gray-400">Nenhuma empresa encontrada</div>
-        ) : filtered.map(company => (
-          <div key={company.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 140px 160px 90px' }}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#E6F1FB] flex items-center justify-center text-[#185FA5] text-xs font-semibold flex-shrink-0">
-                {(company.trade_name || company.legal_name).slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <div className="text-sm font-medium text-gray-900">{company.trade_name || company.legal_name}</div>
-                <div className="text-xs text-gray-400 font-mono">{company.cnpj}</div>
-              </div>
-            </div>
-            <span className="text-sm text-gray-600">{company.city}, {company.state}</span>
-            <span className="text-sm text-gray-600 truncate">{(company as any).partner?.name ?? '—'}</span>
-            <span className={cn('badge', COMPANY_STATUS_COLORS[company.status])}>{COMPANY_STATUS_LABELS[company.status]}</span>
+      <div style={{ padding:'22px 26px' }}>
+        {/* Filtros */}
+        <div className="card" style={{ padding:'14px 18px', marginBottom:16, display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+          <div style={{ flex:1, minWidth:240, position:'relative' }}>
+            <svg style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)' }} width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <circle cx="6" cy="6" r="4.5" stroke="#AEADC0" strokeWidth="1.4"/>
+              <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="#AEADC0" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            <input
+              className="form-input"
+              placeholder="Buscar por CNPJ, nome fantasia, razão social..."
+              value={busca}
+              onChange={e => { setBusca(e.target.value); setPage(0) }}
+              style={{ paddingLeft:30 }}
+            />
           </div>
-        ))}
-      </div>
+          <select className="form-input" style={{ width:'auto' }} value={filtroProd} onChange={e => { setFiltroProd(e.target.value); setPage(0) }}>
+            <option value="">Todos os produtos</option>
+            {PRODUTOS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select className="form-input" style={{ width:'auto' }} value={filtroUF} onChange={e => { setFiltroUF(e.target.value); setPage(0) }}>
+            <option value="">Todos os estados</option>
+            {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <span style={{ fontSize:11.5, color:'#AEADC0', fontWeight:600, whiteSpace:'nowrap' }}>
+            {empresas.length} resultados
+          </span>
+        </div>
 
-      {/* Modal Nova Empresa */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <h2 className="text-sm font-semibold text-gray-900">Nova empresa</h2>
-              <button onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
-                <X size={16} />
-              </button>
-            </div>
+        {/* Tabela */}
+        <div className="card">
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr style={{ background:'#FAFAFA' }}>
+                {['Empresa','CNPJ','ID Grupo','Localidade','Produtos','Dados','Ações'].map(h => (
+                  <th key={h} style={{ fontSize:10.5, fontWeight:700, color:'#AEADC0', textAlign:'left', padding:'10px 16px', borderBottom:'1px solid #EAEAF0', textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan={7} style={{ padding:'32px', textAlign:'center', color:'#AEADC0' }}>Carregando...</td></tr>
+              )}
+              {!loading && empresas.length === 0 && (
+                <tr><td colSpan={7} style={{ padding:'32px', textAlign:'center', color:'#AEADC0', fontSize:13 }}>
+                  Nenhuma empresa encontrada.
+                </td></tr>
+              )}
+              {!loading && empresas.map((e: any) => {
+                const produtos: string[] = [...new Set((e.empresas_produtos ?? []).map((p: any) => p.produto_nome))] as string[]
+                return (
+                  <tr key={e.id} style={{ borderBottom:'1px solid #F4F4F8', cursor:'pointer' }}
+                    onMouseEnter={el => (el.currentTarget.style.background = '#FAFAFE')}
+                    onMouseLeave={el => (el.currentTarget.style.background = '')}>
+                    <td style={{ padding:'11px 16px' }}>
+                      <div style={{ fontWeight:700, fontSize:12.5, color:'#2C2A40' }}>{e.nome_fantasia}</div>
+                      {e.razao_social && <div style={{ fontSize:10.5, color:'#AEADC0', marginTop:1 }}>{e.razao_social}</div>}
+                    </td>
+                    <td style={{ padding:'11px 16px', fontSize:11.5, fontFamily:'monospace', color:'#7F77DD' }}>
+                      {e.cnpj ? e.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : <span style={{ color:'#AEADC0' }}>—</span>}
+                    </td>
+                    <td style={{ padding:'11px 16px' }}>
+                      <span style={{ display:'inline-block', padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:'#F5F4FC', color:'#5B52C2' }}>
+                        {e.id_grupo}
+                      </span>
+                    </td>
+                    <td style={{ padding:'11px 16px', fontSize:11.5, color:'#7A798C' }}>
+                      {e.municipio} · <strong>{e.uf}</strong>
+                    </td>
+                    <td style={{ padding:'11px 16px' }}>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+                        {produtos.map(p => {
+                          const c = PROD_COLORS[p] ?? { bg:'#F1EFE8', color:'#5F5E5A' }
+                          return (
+                            <span key={p} style={{ display:'inline-block', padding:'1px 6px', borderRadius:20, fontSize:9.5, fontWeight:700, background:c.bg, color:c.color, whiteSpace:'nowrap' }}>
+                              {p}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </td>
+                    <td style={{ padding:'11px 16px' }}>
+                      {e.dados_enriquecidos
+                        ? <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:20, background:'#E1F5EE', color:'#0F6E56' }}>✓ Completo</span>
+                        : <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:20, background:'#FAEEDA', color:'#854F0B' }}>Pendente</span>
+                      }
+                    </td>
+                    <td style={{ padding:'11px 16px' }}>
+                      <button
+                        onClick={() => router.push(`/empresas/${e.id}`)}
+                        style={{ width:26, height:26, borderRadius:7, border:'1px solid #EAEAF0', background:'#fff', cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', color:'#AEADC0' }}
+                        title="Ver detalhes"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none"><ellipse cx="6.5" cy="6.5" rx="5" ry="3.5" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="6.5" r="1.5" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
 
-            <form onSubmit={handleSave} className="p-6 space-y-6">
-              {/* CNPJ com busca automática */}
-              <div className="space-y-4">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Dados da empresa</div>
-                <div className="form-group">
-                  <label className="form-label">CNPJ *</label>
-                  <div className="relative">
-                    <input
-                      className="input pr-10 font-mono"
-                      placeholder="00.000.000/0000-00"
-                      value={form.cnpj}
-                      onChange={e => handleCNPJ(e.target.value)}
-                      maxLength={18}
-                      required
-                    />
-                    {cnpjLoading && (
-                      <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#185FA5] animate-spin" />
-                    )}
-                  </div>
-                  {cnpjLoading && <p className="text-xs text-[#185FA5] mt-1">Consultando Receita Federal…</p>}
-                  {cnpjError && <p className="text-xs text-amber-600 mt-1">{cnpjError}</p>}
-                  {!cnpjLoading && !cnpjError && form.legal_name && (
-                    <p className="text-xs text-green-600 mt-1">✓ Dados preenchidos automaticamente</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group col-span-2">
-                    <label className="form-label">Razão social *</label>
-                    <input className="input" value={form.legal_name} onChange={e => setField('legal_name', e.target.value)} required />
-                  </div>
-                  <div className="form-group col-span-2">
-                    <label className="form-label">Nome fantasia</label>
-                    <input className="input" value={form.trade_name} onChange={e => setField('trade_name', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Cidade *</label>
-                    <input className="input" value={form.city} onChange={e => setField('city', e.target.value)} required />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Estado *</label>
-                    <select className="select" value={form.state} onChange={e => setField('state', e.target.value)} required>
-                      <option value="">Selecione…</option>
-                      {ESTADOS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contato RH */}
-              <div className="space-y-4">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Contato RH</div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group col-span-2">
-                    <label className="form-label">Nome do contato *</label>
-                    <input className="input" value={form.contact_name} onChange={e => setField('contact_name', e.target.value)} required />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Telefone</label>
-                    <input className="input" placeholder="(11) 99999-0000" value={form.contact_phone} onChange={e => setField('contact_phone', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">E-mail</label>
-                    <input className="input" type="email" value={form.contact_email} onChange={e => setField('contact_email', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Configurações */}
-              <div className="space-y-4">
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Configurações</div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group">
-                    <label className="form-label">Parceiro responsável</label>
-                    <select className="select" value={form.partner_id} onChange={e => setField('partner_id', e.target.value)}>
-                      <option value="">Sem parceiro</option>
-                      {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Status</label>
-                    <select className="select" value={form.status} onChange={e => setField('status', e.target.value)}>
-                      <option value="ativa">Ativa</option>
-                      <option value="inativa">Inativa</option>
-                      <option value="bloqueada">Bloqueada</option>
-                    </select>
-                  </div>
-                  <div className="form-group col-span-2">
-                    <label className="form-label">Observações internas</label>
-                    <textarea className="textarea" rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{error}</p>}
-
-              <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-                <button type="button" onClick={() => setShowModal(false)} className="btn">Cancelar</button>
-                <button type="submit" disabled={saving} className="btn-primary">
-                  {saving ? 'Salvando…' : 'Cadastrar empresa'}
+          {/* Paginação */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 18px', borderTop:'1px solid #EAEAF0' }}>
+            <span style={{ fontSize:11.5, color:'#AEADC0', fontWeight:600 }}>
+              Página {page + 1} · {total} empresas no total
+            </span>
+            <div style={{ display:'flex', gap:4 }}>
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                style={{ width:28, height:28, borderRadius:7, border:'1px solid #EAEAF0', background: page===0 ? '#FAFAFA' : '#fff', cursor: page===0 ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', color: page===0 ? '#AEADC0' : '#7A798C' }}
+              >‹</button>
+              {Array.from({ length: Math.min(5, Math.ceil(total/PER_PAGE)) }, (_, i) => (
+                <button key={i} onClick={() => setPage(i)}
+                  style={{ width:28, height:28, borderRadius:7, border:'1px solid #EAEAF0', background: page===i ? 'linear-gradient(135deg,#6B62D4,#B87070)' : '#fff', color: page===i ? '#fff' : '#7A798C', cursor:'pointer', fontSize:12, fontWeight:700, fontFamily:'Nunito,sans-serif' }}>
+                  {i+1}
                 </button>
-              </div>
-            </form>
+              ))}
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={(page + 1) * PER_PAGE >= total}
+                style={{ width:28, height:28, borderRadius:7, border:'1px solid #EAEAF0', background:'#fff', cursor:(page+1)*PER_PAGE>=total?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#7A798C' }}
+              >›</button>
+            </div>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    </AppShell>
   )
 }
