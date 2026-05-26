@@ -31,6 +31,7 @@ export default function NovoAtendimentoPage() {
   const [mode, setMode] = useState<'pre' | 'full'>('full')
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
+  const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
   const [filtered, setFiltered] = useState<Company[]>([])
   const [companySearch, setCompanySearch] = useState('')
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
@@ -45,7 +46,7 @@ export default function NovoAtendimentoPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
-    requester_name: '', employee_name: '',
+    requester_name: '', employee_name: '', attendant_id: '',
     type_label: 'Segunda via cartao', department: 'comercial',
     priority: 'media', description: '',
   })
@@ -54,6 +55,8 @@ export default function NovoAtendimentoPage() {
     supabase.from('companies').select('id, legal_name, trade_name, cnpj')
       .eq('status', 'ativa').order('legal_name')
       .then(({ data }) => { setCompanies((data as Company[]) ?? []); setFiltered((data as Company[]) ?? []) })
+    supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
+      .then(({ data }) => setAttendants((data as any[]) ?? []))
     const saved = localStorage.getItem('vegas_ticket_types')
     if (saved) setTypes(JSON.parse(saved))
   }, [])
@@ -119,6 +122,7 @@ export default function NovoAtendimentoPage() {
       company_id:     selectedCompany?.id ?? null,
       requester_name: form.requester_name || 'Não informado',
       employee_name:  form.employee_name || null,
+      attendant_id:   form.attendant_id || null,
       type:           typeDb,
       description:    `[${form.type_label}] ${form.description}`,
       department:     form.department,
@@ -216,6 +220,15 @@ export default function NovoAtendimentoPage() {
                 <div className="form-group">
                   <label className="form-label">Colaborador envolvido</label>
                   <input className="input" placeholder="Nome do funcionário" value={form.employee_name} onChange={e => set('employee_name', e.target.value)} />
+                </div>
+                <div className="form-group col-span-2">
+                  <label className="form-label">Atendente responsável</label>
+                  <select className="select" value={form.attendant_id} onChange={e => set('attendant_id', e.target.value)}>
+                    <option value="">Selecione o atendente...</option>
+                    {attendants.map(a => (
+                      <option key={a.id} value={a.id}>{a.full_name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
