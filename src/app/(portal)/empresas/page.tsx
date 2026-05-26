@@ -38,13 +38,27 @@ export default function EmpresasPage() {
       .range(page * PER_PAGE, (page + 1) * PER_PAGE - 1)
 
     if (busca.trim()) {
-      const digits = busca.trim().replace(/\D/g,'')
-      if (digits.length >= 8) {
-        query = query.ilike('cnpj', `%${digits}%`)
-      } else {
-        query = query.or(`nome_fantasia.ilike.%${busca.trim()}%,razao_social.ilike.%${busca.trim()}%`)
-      }
+  const digits = busca.trim().replace(/\D/g,'')
+  if (digits.length >= 8) {
+    // Busca por CNPJ
+    query = query.ilike('cnpj', `%${digits}%`)
+  } else if (/^\d+$/.test(busca.trim())) {
+    // Busca por ID do grupo ou ID do produto (número puro)
+    const prodIds = await supabase
+      .from('empresas_produtos')
+      .select('empresa_id')
+      .eq('produto_id', parseInt(busca.trim()))
+    const ids = (prodIds.data ?? []).map((p: any) => p.empresa_id)
+    if (ids.length > 0) {
+      query = query.in('id', ids)
+    } else {
+      query = query.eq('id_grupo', parseInt(busca.trim()))
     }
+  } else {
+    // Busca por nome fantasia ou razão social
+    query = query.or(`nome_fantasia.ilike.%${busca.trim()}%,razao_social.ilike.%${busca.trim()}%`)
+  }
+}
     if (filtroUF) query = query.eq('uf', filtroUF)
 
     const { data, count } = await query
