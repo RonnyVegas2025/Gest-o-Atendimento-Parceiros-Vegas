@@ -96,10 +96,10 @@ export default function NovoAtendimentoPage() {
   useEffect(() => {
     if (!companySearch) { setFiltered(companies); return }
     const q = companySearch.toLowerCase()
-    setFiltered(companies.filter(c =>
-      c.legal_name.toLowerCase().includes(q) ||
+    setFiltered(companies.filter((c: any) =>
+      (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
-      c.cnpj.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+      (c.cnpj ?? '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))
     ))
   }, [companySearch, companies])
 
