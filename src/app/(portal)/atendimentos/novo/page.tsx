@@ -66,12 +66,16 @@ export default function NovoAtendimentoPage() {
   })
 
   useEffect(() => {
-    supabase.from('companies').select('id, legal_name, trade_name, cnpj')
-      .eq('status', 'ativa').order('legal_name')
-      .then(({ data }) => {
-        setCompanies((data as Company[]) ?? [])
-        setFiltered((data as Company[]) ?? [])
-      })
+    Promise.all([
+      supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
+      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
+    ]).then(([{ data: comp }, { data: conv }]) => {
+      const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
+      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.razao_social || c.nome_fantasia, trade_name: c.nome_fantasia, cnpj: c.cnpj }))
+      const all = [...fromCompanies, ...fromConveniadas]
+      setCompanies(all as any)
+      setFiltered(all as any)
+    })
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
     supabase.from('ticket_types').select('*').eq('active', true).order('name')
