@@ -71,7 +71,7 @@ export default function NovoAtendimentoPage() {
       supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
     ]).then(([{ data: comp }, { data: conv }]) => {
       const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
-      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.razao_social || c.nome_fantasia, trade_name: c.nome_fantasia, cnpj: c.cnpj }))
+      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
       const all = [...fromCompanies, ...fromConveniadas]
       setCompanies(all as any)
       setFiltered(all as any)
