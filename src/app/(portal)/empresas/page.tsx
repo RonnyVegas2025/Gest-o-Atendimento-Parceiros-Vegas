@@ -125,7 +125,7 @@ export default function EmpresasPage() {
         )}
 
         {!loading && empresas.map((e: any) => {
-          const produtos: string[] = [...new Set((e.empresas_produtos ?? []).map((p: any) => p.produto_nome))] as string[]
+          const produtos: string[] = Array.from(new Set((e.empresas_produtos ?? []).map((p: any) => p.produto_nome as string)))
           return (
             <div key={e.id} className="table-row grid hover:bg-blue-50/30" style={{ gridTemplateColumns:'1fr 140px 80px 140px 1fr 90px 60px' }}>
               <div>
