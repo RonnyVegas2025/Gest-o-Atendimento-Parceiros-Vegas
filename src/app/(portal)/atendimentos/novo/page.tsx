@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { DEPARTMENT_LABELS, PRIORITY_LABELS } from '@/lib/constants'
 import type { Company } from '@/lib/types'
-import { ArrowLeft, Info, Search, Plus, X, FileText, Zap } from 'lucide-react'
+import { ArrowLeft, Info, Search, X, FileText, Zap, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import PasteTextarea from '@/components/ui/PasteTextarea'
+import { cn } from '@/lib/utils'
 
 const ALL_DEPARTMENTS = [
   { value: 'comercial',   label: 'ADM Comercial' },
@@ -15,15 +15,27 @@ const ALL_DEPARTMENTS = [
   { value: 'operacional', label: 'Operacional' },
   { value: 'rede',        label: 'Rede' },
   { value: 'marketing',   label: 'Marketing' },
-  { value: 'juridico',    label: 'Jurídico' },
-  { value: 'logistica',   label: 'Logística' },
+  { value: 'juridico',    label: 'Juridico' },
+  { value: 'logistica',   label: 'Logistica' },
 ]
 
-const DEFAULT_TYPES = [
-  'Segunda via cartão', 'Inclusão colaborador', 'Exclusão colaborador',
-  'Alteração cadastro', 'Problema saldo', 'Problema cartão',
-  'Solicitação de senha', 'Outros',
-]
+const PRIORITY_COLORS: Record<string, string> = {
+  alta:  'bg-red-50 text-red-700 border border-red-200',
+  media: 'bg-amber-50 text-amber-700 border border-amber-200',
+  baixa: 'bg-green-50 text-green-700 border border-green-200',
+}
+
+const PRIORITY_LABELS: Record<string, string> = {
+  alta: 'Alta', media: 'Media', baixa: 'Baixa'
+}
+
+interface TicketType {
+  id: string
+  name: string
+  priority: 'baixa' | 'media' | 'alta'
+  sla_hours: number
+  active: boolean
+}
 
 export default function NovoAtendimentoPage() {
   const supabase = createClient()
@@ -32,33 +44,49 @@ export default function NovoAtendimentoPage() {
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
+  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([])
   const [filtered, setFiltered] = useState<Company[]>([])
   const [companySearch, setCompanySearch] = useState('')
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [types, setTypes] = useState<string[]>(DEFAULT_TYPES)
-  const [showNewType, setShowNewType] = useState(false)
-  const [newType, setNewType] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
-    requester_name: '', employee_name: '', attendant_id: '',
-    type_label: 'Segunda via cartao', department: 'comercial',
-    priority: 'media', description: '',
+    requester_name: '',
+    employee_name:  '',
+    attendant_id:   '',
+    type_id:        '',
+    department:     'comercial',
+    priority:       'media',
+    sla_hours:      8,
+    description:    '',
   })
 
   useEffect(() => {
     supabase.from('companies').select('id, legal_name, trade_name, cnpj')
       .eq('status', 'ativa').order('legal_name')
-      .then(({ data }) => { setCompanies((data as Company[]) ?? []); setFiltered((data as Company[]) ?? []) })
+      .then(({ data }) => {
+        setCompanies((data as Company[]) ?? [])
+        setFiltered((data as Company[]) ?? [])
+      })
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
-    const saved = localStorage.getItem('vegas_ticket_types')
-    if (saved) setTypes(JSON.parse(saved))
+    supabase.from('ticket_types').select('*').eq('active', true).order('name')
+      .then(({ data }) => {
+        const types = (data as TicketType[]) ?? []
+        setTicketTypes(types)
+        if (types.length > 0) {
+          setForm(f => ({
+            ...f,
+            type_id:  types[0].id,
+            priority: types[0].priority,
+            sla_hours: types[0].sla_hours,
+          }))
+        }
+      })
   }, [])
 
   useEffect(() => {
@@ -71,14 +99,20 @@ export default function NovoAtendimentoPage() {
     ))
   }, [companySearch, companies])
 
-  function set(field: string, value: string) { setForm(p => ({ ...p, [field]: value })) }
+  function set(field: string, value: string) {
+    setForm(p => ({ ...p, [field]: value }))
+  }
 
-  function addNewType() {
-    if (!newType.trim()) return
-    const updated = [...types.filter(t => t !== 'Outros'), newType.trim(), 'Outros']
-    setTypes(updated); localStorage.setItem('vegas_ticket_types', JSON.stringify(updated))
-    setForm(f => ({ ...f, type_label: newType.trim() }))
-    setNewType(''); setShowNewType(false)
+  function handleTypeChange(typeId: string) {
+    const type = ticketTypes.find(t => t.id === typeId)
+    if (type) {
+      setForm(f => ({
+        ...f,
+        type_id:   type.id,
+        priority:  type.priority,
+        sla_hours: type.sla_hours,
+      }))
+    }
   }
 
   function handleFiles(fileList: FileList | null) {
@@ -87,44 +121,23 @@ export default function NovoAtendimentoPage() {
     setFiles(prev => [...prev, ...newFiles])
   }
 
-  async function uploadFiles(ticketId: string) {
-    for (const file of files) {
-      const path = `${ticketId}/${Date.now()}_${file.name.replace(/\s/g, '_')}`
-      const { error } = await supabase.storage.from('attachments').upload(path, file, { contentType: file.type })
-      if (!error) {
-        await supabase.from('ticket_attachments').insert({
-          ticket_id: ticketId, file_name: file.name, file_type: file.type,
-          file_size: file.size, storage_path: path,
-          uploaded_by: '00000000-0000-0000-0000-000000000001',
-        })
-      }
-    }
-  }
-
   async function handleSubmit(e: React.FormEvent, isDraft = false) {
     e.preventDefault()
     setError('')
-
     if (mode === 'full' && !selectedCompany) { setError('Selecione uma empresa.'); return }
-    if (!form.description.trim()) { setError('Descrição é obrigatória.'); return }
-
+    if (!form.description.trim()) { setError('Descricao e obrigatoria.'); return }
     setLoading(true)
 
-    const TYPE_MAP: Record<string, string> = {
-      'Segunda via cartão': 'segunda_via_cartao', 'Inclusão colaborador': 'inclusao_colaborador',
-      'Exclusão colaborador': 'exclusao_colaborador', 'Alteração cadastro': 'alteracao_cadastro',
-      'Problema saldo': 'problema_saldo', 'Problema cartão': 'problema_cartao',
-    }
-    const typeDb = TYPE_MAP[form.type_label] ?? 'outros'
+    const selectedType = ticketTypes.find(t => t.id === form.type_id)
     const status = isDraft ? 'rascunho' : 'aberto'
 
     const payload: Record<string, unknown> = {
       company_id:     selectedCompany?.id ?? null,
-      requester_name: form.requester_name || 'Não informado',
+      requester_name: form.requester_name || 'Nao informado',
       employee_name:  form.employee_name || null,
       attendant_id:   form.attendant_id || null,
-      type:           typeDb,
-      description:    `[${form.type_label}] ${form.description}`,
+      type:           'outros',
+      description:    selectedType ? '[' + selectedType.name + '] ' + form.description : form.description,
       department:     form.department,
       priority:       form.priority,
       status,
@@ -132,15 +145,16 @@ export default function NovoAtendimentoPage() {
       created_by:     '00000000-0000-0000-0000-000000000001',
     }
 
-    const { data, error: err } = await supabase.from('tickets').insert(payload).select('id, protocol').single()
+    const { data, error: err } = await supabase
+      .from('tickets').insert(payload).select('id, protocol').single()
+
     if (err) { setError(err.message); setLoading(false); return }
 
-    if (files.length > 0) await uploadFiles(data.id)
-
     setLoading(false)
-    router.push(`/atendimentos/${data.id}`)
+    router.push('/atendimentos/' + data.id)
   }
 
+  const selectedType = ticketTypes.find(t => t.id === form.type_id)
   const isPre = mode === 'pre'
 
   return (
@@ -150,13 +164,12 @@ export default function NovoAtendimentoPage() {
           <Link href="/atendimentos" className="btn btn-sm"><ArrowLeft size={14} /></Link>
           <div className="flex-1">
             <h1 className="text-lg font-semibold text-gray-900">
-              {isPre ? 'Pré-atendimento' : 'Novo atendimento'}
+              {isPre ? 'Pre-atendimento' : 'Novo atendimento'}
             </h1>
             <p className="text-xs text-gray-400">
               {isPre ? 'Registre rapidamente sem todos os dados' : 'Protocolo gerado automaticamente'}
             </p>
           </div>
-          {/* Toggle mode */}
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             <button onClick={() => setMode('full')}
               className={`px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 transition-colors ${mode === 'full' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
@@ -164,7 +177,7 @@ export default function NovoAtendimentoPage() {
             </button>
             <button onClick={() => setMode('pre')}
               className={`px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 transition-colors ${mode === 'pre' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              <Zap size={12} /> Rápido
+              <Zap size={12} /> Rapido
             </button>
           </div>
         </div>
@@ -172,21 +185,20 @@ export default function NovoAtendimentoPage() {
         {isPre && (
           <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-start gap-2">
             <Zap size={14} className="flex-shrink-0 mt-0.5" />
-            <span>Modo rápido — registre o que sabe agora e complete os dados depois. A empresa pode ficar em branco.</span>
+            <span>Modo rapido — registre o que sabe agora e complete os dados depois. A empresa pode ficar em branco.</span>
           </div>
         )}
 
         <form onSubmit={e => handleSubmit(e, false)} className="space-y-5">
-          {/* Identificação */}
+          {/* Identificacao */}
           <div className="card">
-            <div className="card-header"><span className="card-title">Identificação</span></div>
+            <div className="card-header"><span className="card-title">Identificacao</span></div>
             <div className="card-body space-y-4">
-              {/* Empresa */}
               <div className="form-group">
                 <label className="form-label">Empresa {!isPre && '*'}{isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input className="input pl-9" placeholder="Digite o nome ou CNPJ…"
+                  <input className="input pl-9" placeholder="Digite o nome ou CNPJ..."
                     value={companySearch}
                     onChange={e => { setCompanySearch(e.target.value); setShowDropdown(true); setSelectedCompany(null) }}
                     onFocus={() => setShowDropdown(true)} />
@@ -196,10 +208,10 @@ export default function NovoAtendimentoPage() {
                   )}
                 </div>
                 {showDropdown && !selectedCompany && companySearch && (
-                  <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto">
+                  <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto z-10 relative">
                     {filtered.length === 0 ? (
                       <div className="px-4 py-3 text-sm text-gray-400">Nenhuma empresa encontrada</div>
-                    ) : filtered.map(c => (
+                    ) : filtered.slice(0, 6).map(c => (
                       <button key={c.id} type="button"
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
                         onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
@@ -209,76 +221,82 @@ export default function NovoAtendimentoPage() {
                     ))}
                   </div>
                 )}
-                {selectedCompany && <p className="text-xs text-green-600 mt-1">✓ {selectedCompany.legal_name}</p>}
+                {selectedCompany && <p className="text-xs text-green-600 mt-1">Selecionado: {selectedCompany.legal_name}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
                   <label className="form-label">Solicitante (RH){isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
-                  <input className="input" placeholder="Nome do responsável" value={form.requester_name} onChange={e => set('requester_name', e.target.value)} />
+                  <input className="input" placeholder="Nome do responsavel" value={form.requester_name} onChange={e => set('requester_name', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Colaborador envolvido</label>
-                  <input className="input" placeholder="Nome do funcionário" value={form.employee_name} onChange={e => set('employee_name', e.target.value)} />
+                  <input className="input" placeholder="Nome do funcionario" value={form.employee_name} onChange={e => set('employee_name', e.target.value)} />
                 </div>
                 <div className="form-group col-span-2">
-                  <label className="form-label">Atendente responsável</label>
+                  <label className="form-label">Atendente responsavel</label>
                   <select className="select" value={form.attendant_id} onChange={e => set('attendant_id', e.target.value)}>
                     <option value="">Selecione o atendente...</option>
-                    {attendants.map(a => (
-                      <option key={a.id} value={a.id}>{a.full_name}</option>
-                    ))}
+                    {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                   </select>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Classificação */}
+          {/* Classificacao */}
           <div className="card">
-            <div className="card-header"><span className="card-title">Classificação</span></div>
+            <div className="card-header"><span className="card-title">Classificacao</span></div>
             <div className="card-body space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="form-group">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="form-label">Tipo *</label>
-                    <button type="button" onClick={() => setShowNewType(!showNewType)} className="text-[10px] text-[#185FA5] hover:underline flex items-center gap-0.5">
-                      <Plus size={10} /> Novo
-                    </button>
-                  </div>
-                  <select className="select" value={form.type_label} onChange={e => set('type_label', e.target.value)}>
-                    {types.map(t => <option key={t} value={t}>{t}</option>)}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Tipo — carrega do banco */}
+                <div className="form-group col-span-2">
+                  <label className="form-label">Tipo de solicitacao *</label>
+                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
+                    <option value="">Selecione o tipo...</option>
+                    {ticketTypes.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
                   </select>
-                  {showNewType && (
-                    <div className="flex gap-1 mt-2">
-                      <input className="input text-xs py-1" placeholder="Novo tipo…" value={newType}
-                        onChange={e => setNewType(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addNewType())} />
-                      <button type="button" onClick={addNewType} className="btn-primary btn-sm px-2">+</button>
+                  {/* Preview SLA e prioridade automaticos */}
+                  {selectedType && (
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className={cn('badge', PRIORITY_COLORS[selectedType.priority])}>
+                        <span className={cn('w-1.5 h-1.5 rounded-full mr-1', selectedType.priority === 'alta' ? 'bg-red-500' : selectedType.priority === 'media' ? 'bg-amber-400' : 'bg-green-500')} />
+                        Prioridade {PRIORITY_LABELS[selectedType.priority]} (automatico)
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 px-2.5 py-1 rounded-full border border-gray-200">
+                        <Clock size={11} />
+                        SLA: {selectedType.sla_hours}h (automatico)
+                      </span>
                     </div>
                   )}
                 </div>
+
                 <div className="form-group">
                   <label className="form-label">Departamento *</label>
                   <select className="select" value={form.department} onChange={e => set('department', e.target.value)}>
                     {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
                 </div>
+
+                {/* Prioridade — preenchida automaticamente mas editavel */}
                 <div className="form-group">
-                  <label className="form-label">Prioridade *</label>
+                  <label className="form-label">Prioridade <span className="text-gray-400 font-normal">(ajustar se necessario)</span></label>
                   <select className="select" value={form.priority} onChange={e => set('priority', e.target.value)}>
-                    <option value="baixa">Baixa</option>
-                    <option value="media">Média</option>
                     <option value="alta">Alta</option>
+                    <option value="media">Media</option>
+                    <option value="baixa">Baixa</option>
                   </select>
                 </div>
               </div>
+
               <div className="form-group">
-                <label className="form-label">Descrição *</label>
+                <label className="form-label">Descricao *</label>
                 <PasteTextarea
                   value={form.description}
                   onChange={v => set('description', v)}
-                  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints diretamente..."
+                  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints..."
                   rows={4}
                   required
                 />
@@ -288,7 +306,8 @@ export default function NovoAtendimentoPage() {
 
           {/* Anexos */}
           <div className="card">
-            <div className="card-header"><span className="card-title">📎 Anexos</span>
+            <div className="card-header">
+              <span className="card-title">Anexos</span>
               <span className="text-xs text-gray-400">{files.length} arquivo(s)</span>
             </div>
             <div className="card-body space-y-3">
@@ -301,8 +320,8 @@ export default function NovoAtendimentoPage() {
                 <input ref={fileRef} type="file" multiple className="hidden"
                   accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                   onChange={e => handleFiles(e.target.files)} />
-                <div className="text-sm text-gray-400">📎 Arraste prints do WhatsApp, PDFs ou documentos aqui</div>
-                <div className="text-xs text-gray-300 mt-1">ou clique para selecionar — até 10MB por arquivo</div>
+                <div className="text-sm text-gray-400">Arraste prints do WhatsApp, PDFs ou documentos aqui</div>
+                <div className="text-xs text-gray-300 mt-1">ou clique para selecionar — ate 10MB por arquivo</div>
               </div>
               {files.length > 0 && (
                 <div className="space-y-2">
@@ -311,7 +330,7 @@ export default function NovoAtendimentoPage() {
                       {f.type.startsWith('image/') ? (
                         <img src={URL.createObjectURL(f)} alt={f.name} className="w-10 h-10 object-cover rounded border border-gray-200" />
                       ) : (
-                        <div className="w-10 h-10 bg-white rounded border border-gray-200 flex items-center justify-center text-gray-400">📄</div>
+                        <div className="w-10 h-10 bg-white rounded border border-gray-200 flex items-center justify-center text-gray-400 text-lg">📄</div>
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium text-gray-900 truncate">{f.name}</div>
@@ -328,7 +347,7 @@ export default function NovoAtendimentoPage() {
 
           <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 rounded-xl text-xs text-blue-700 border border-blue-100">
             <Info size={14} className="flex-shrink-0 mt-0.5" />
-            <span>Protocolo gerado automaticamente. SLA: Alta = 4h · Média = 8h · Baixa = 24h.</span>
+            <span>Protocolo gerado automaticamente. SLA e prioridade definidos pelo tipo de solicitacao.</span>
           </div>
 
           {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{error}</p>}
@@ -338,7 +357,7 @@ export default function NovoAtendimentoPage() {
             {isPre && (
               <button type="button" onClick={e => handleSubmit(e as any, true)} disabled={loading}
                 className="btn bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100">
-                <Zap size={14} /> {loading ? 'Salvando…' : 'Salvar rascunho'}
+                <Zap size={14} /> {loading ? 'Salvando...' : 'Salvar rascunho'}
               </button>
             )}
             <button type="submit" disabled={loading} className="btn-primary min-w-[160px] justify-center">
@@ -348,9 +367,9 @@ export default function NovoAtendimentoPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                   </svg>
-                  Abrindo…
+                  Abrindo...
                 </span>
-              ) : isPre ? '⚡ Abrir pré-atendimento' : 'Abrir atendimento'}
+              ) : isPre ? 'Abrir pre-atendimento' : 'Abrir atendimento'}
             </button>
           </div>
         </form>
