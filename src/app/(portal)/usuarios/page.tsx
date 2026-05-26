@@ -26,7 +26,9 @@ const DEPT_LABELS: Record<string, string> = {
   juridico: 'Juridico', logistica: 'Logistica',
 }
 
-const EMPTY = { full_name: '', email: '', phone: '', role: 'atendimento' as const, department: 'comercial' }
+const EMPTY: { full_name: string; email: string; phone: string; role: 'gestor_master' | 'supervisor_adm' | 'atendimento'; department: string } = {
+  full_name: '', email: '', phone: '', role: 'atendimento', department: 'comercial'
+}
 
 export default function UsuariosPage() {
   const supabase = createClient()
