@@ -27,7 +27,9 @@ const SLA_OPTIONS = [
   { value: 72, label: '72 horas (3 dias)' },
 ]
 
-const EMPTY = { name: '', description: '', priority: 'media' as const, sla_hours: 8 }
+const EMPTY: { name: string; description: string; priority: 'baixa' | 'media' | 'alta'; sla_hours: number } = {
+  name: '', description: '', priority: 'media', sla_hours: 8
+}
 
 export default function TiposPage() {
   const supabase = createClient()
