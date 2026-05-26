@@ -41,7 +41,7 @@ export default function EmpresaDetalhePage() {
     setEnr(true); setMsg(null)
     try {
       const cnpjLimpo = empresa.cnpj.replace(/\D/g, '').padStart(14, '0')
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
+      const res = await fetch(`/api/cnpj/${cnpjLimpo}`)
       if (!res.ok) throw new Error('CNPJ não encontrado na Receita Federal')
       const d = await res.json()
 
