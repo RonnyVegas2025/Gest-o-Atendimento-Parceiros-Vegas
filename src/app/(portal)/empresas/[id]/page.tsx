@@ -40,7 +40,8 @@ export default function EmpresaDetalhePage() {
     if (!empresa?.cnpj) { setMsg({ text:'Empresa sem CNPJ cadastrado.', ok:false }); return }
     setEnr(true); setMsg(null)
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${empresa.cnpj}`)
+      const cnpjLimpo = empresa.cnpj.replace(/\D/g, '').padStart(14, '0')
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
       if (!res.ok) throw new Error('CNPJ não encontrado na Receita Federal')
       const d = await res.json()
 
