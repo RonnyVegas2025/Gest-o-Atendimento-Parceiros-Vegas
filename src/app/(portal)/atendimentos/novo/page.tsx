@@ -94,13 +94,15 @@ export default function NovoAtendimentoPage() {
   }, [])
 
   useEffect(() => {
-    if (!companySearch) { setFiltered(companies); return }
+    if (!companySearch || companySearch.length < 2) { setFiltered([]); return }
     const q = companySearch.toLowerCase()
-    setFiltered(companies.filter((c: any) =>
+    const digits = companySearch.replace(/\D/g, '')
+    const results = companies.filter((c: any) =>
       (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
-      (c.cnpj ?? '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))
-    ))
+      (digits.length >= 3 && (c.cnpj ?? '').includes(digits))
+    )
+    setFiltered(results)
   }, [companySearch, companies])
 
   function set(field: string, value: string) {
