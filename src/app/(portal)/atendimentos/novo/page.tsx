@@ -130,7 +130,7 @@ export default function NovoAtendimentoPage() {
   async function handleSubmit(e: React.FormEvent, isDraft = false) {
     e.preventDefault()
     setError('')
-    if (mode === 'full' && !selectedCompany) { setError('Selecione uma empresa.'); return }
+    if (mode === 'full' && !selectedCompany && !companySearch.trim()) { setError('Selecione ou digite o nome de uma empresa.'); return }
     if (!form.description.trim()) { setError('Descricao e obrigatoria.'); return }
     setLoading(true)
 
