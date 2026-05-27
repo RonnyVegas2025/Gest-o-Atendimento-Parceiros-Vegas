@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid
 } from 'recharts'
-import { Download, Search, X, ChevronDown } from 'lucide-react'
+import { Download, Search } from 'lucide-react'
 
 const DEPT_LABELS: Record<string, string> = {
   comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
@@ -22,6 +22,18 @@ const STATUS_LABELS: Record<string, string> = {
 const COLORS = ['#185FA5','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899','#F97316']
 const TABS = ['Visao Geral', 'Empresas', 'Tipos de Solicitacao', 'Departamentos', 'Detalhado']
 
+const PERIOD_OPTIONS = [
+  { value: '7',           label: 'Ultimos 7 dias' },
+  { value: '15',          label: 'Ultimos 15 dias' },
+  { value: '30',          label: 'Ultimos 30 dias' },
+  { value: '90',          label: 'Ultimos 90 dias' },
+  { value: '365',         label: 'Ultimo ano' },
+  { value: 'month_picker',label: 'Escolher mes/ano...' },
+  { value: 'custom',      label: 'Periodo personalizado' },
+]
+
+const MONTHS = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
 interface Ticket {
   id: string; protocol: string; status: string; priority: string
   department: string; type: string; type_name: string | null
@@ -32,44 +44,18 @@ interface Ticket {
   description: string
 }
 
-// Periodos fixos
-const PERIOD_OPTIONS = [
-  { value: '7',    label: 'Ultimos 7 dias' },
-  { value: '15',   label: 'Ultimos 15 dias' },
-  { value: '30',   label: 'Ultimos 30 dias' },
-  { value: '90',   label: 'Ultimos 90 dias' },
-  { value: '365',  label: 'Ultimo ano' },
-  { value: 'custom', label: 'Periodo personalizado' },
-]
-
-// Meses fechados (últimos 6)
-function getClosedMonths() {
-  const months = []
-  for (let i = 1; i <= 6; i++) {
-    const d = new Date()
-    d.setDate(1)
-    d.setMonth(d.getMonth() - i)
-    months.push({
-      value: `month_${d.getFullYear()}_${d.getMonth()}`,
-      label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
-      start: new Date(d.getFullYear(), d.getMonth(), 1).toISOString(),
-      end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString(),
-    })
-  }
-  return months
-}
-
 export default function RelatoriosPage() {
   const supabase = createClient()
-  const [tickets, setTickets] = useState<Ticket[]>([])
-  const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState('30')
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
-  const [tab, setTab] = useState('Visao Geral')
+  const [tickets, setTickets]           = useState<Ticket[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [period, setPeriod]             = useState('30')
+  const [customStart, setCustomStart]   = useState('')
+  const [customEnd, setCustomEnd]       = useState('')
+  const [monthPickerMonth, setMonthPickerMonth] = useState(new Date().getMonth() === 0 ? 11 : new Date().getMonth() - 1)
+  const [monthPickerYear, setMonthPickerYear]   = useState(new Date().getMonth() === 0 ? new Date().getFullYear() - 1 : new Date().getFullYear())
+  const [tab, setTab]                   = useState('Visao Geral')
   const [companySearch, setCompanySearch] = useState('')
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
-  const closedMonths = getClosedMonths()
 
   useEffect(() => {
     async function load() {
@@ -77,15 +63,13 @@ export default function RelatoriosPage() {
       let since: string
       let until: string = new Date().toISOString()
 
-      if (period.startsWith('month_')) {
-        const month = closedMonths.find(m => m.value === period)
-        if (!month) return
-        since = month.start
-        until = month.end
-      } else if (period === 'custom') {
+      if (period === 'custom') {
         if (!customStart || !customEnd) { setLoading(false); return }
         since = new Date(customStart).toISOString()
         until = new Date(customEnd + 'T23:59:59').toISOString()
+      } else if (period === 'month_picker') {
+        since = new Date(monthPickerYear, monthPickerMonth, 1).toISOString()
+        until = new Date(monthPickerYear, monthPickerMonth + 1, 0, 23, 59, 59).toISOString()
       } else {
         const d = new Date()
         d.setDate(d.getDate() - parseInt(period))
@@ -101,10 +85,10 @@ export default function RelatoriosPage() {
       setLoading(false)
     }
     load()
-  }, [period, customStart, customEnd])
+  }, [period, customStart, customEnd, monthPickerMonth, monthPickerYear])
 
   const getCompanyName = (t: Ticket) => t.company_legal_name ?? t.company_name_free ?? 'Sem empresa'
-  const getTypeName = (t: Ticket) => t.type_name ?? t.type ?? 'Outros'
+  const getTypeName    = (t: Ticket) => t.type_name ?? t.type ?? 'Outros'
 
   const total       = tickets.length
   const finalizados = tickets.filter(t => t.status === 'finalizado').length
@@ -171,41 +155,30 @@ export default function RelatoriosPage() {
   }, [tickets])
 
   function exportXLSX() {
-    // Gera CSV com separador de ponto e vírgula para abrir corretamente no Excel BR
     const rows = [
       ['Protocolo','Empresa','Parceiro','Tipo','Departamento','Prioridade','Status','Atendente','Solicitante','Colaborador','Descricao','Aberto em','Fechado em','SLA Vencido'],
       ...tickets.map(t => [
-        t.protocol,
-        getCompanyName(t),
-        t.partner_name??'',
-        getTypeName(t),
+        t.protocol, getCompanyName(t), t.partner_name??'', getTypeName(t),
         DEPT_LABELS[t.department]??t.department,
-        t.priority==='alta' ? 'Alta' : t.priority==='media' ? 'Media' : 'Baixa',
-        STATUS_LABELS[t.status]??t.status,
-        t.attendant_name??'',
-        t.requester_name??'',
-        t.employee_name??'',
+        t.priority==='alta'?'Alta':t.priority==='media'?'Media':'Baixa',
+        STATUS_LABELS[t.status]??t.status, t.attendant_name??'',
+        t.requester_name??'', t.employee_name??'',
         (t.description??'').replace(/\n/g,' '),
         new Date(t.created_at).toLocaleDateString('pt-BR'),
         t.closed_at ? new Date(t.closed_at).toLocaleDateString('pt-BR') : '',
         t.sla_breached ? 'Sim' : 'Nao',
       ])
     ]
-    // Usa ponto e vírgula como separador (padrão Excel PT-BR)
     const csv = rows.map(r => r.map(c => '"'+String(c??'').replace(/"/g,'""')+'"').join(';')).join('\r\n')
     const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url
-    const periodLabel = period.startsWith('month_')
-      ? closedMonths.find(m=>m.value===period)?.label.replace(' ','_') ?? period
+    const label = period === 'month_picker'
+      ? `${MONTHS[monthPickerMonth]}_${monthPickerYear}`
       : period === 'custom' ? `${customStart}_${customEnd}` : `${period}d`
-    a.download = `relatorio_vegas_${periodLabel}_${new Date().toISOString().slice(0,10)}.csv`
+    a.download = `relatorio_vegas_${label}_${new Date().toISOString().slice(0,10)}.csv`
     a.click(); URL.revokeObjectURL(url)
   }
-
-  const currentPeriodLabel = period.startsWith('month_')
-    ? closedMonths.find(m => m.value === period)?.label
-    : PERIOD_OPTIONS.find(p => p.value === period)?.label
 
   return (
     <div className="p-6 space-y-5">
@@ -216,45 +189,41 @@ export default function RelatoriosPage() {
           <p className="text-xs text-gray-400 mt-0.5">Analise operacional — {total} atendimentos</p>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
-          {/* Seletor de período */}
-          <div className="flex gap-2 items-center">
+          <select className="select w-48" value={period} onChange={e => setPeriod(e.target.value)}>
+            <optgroup label="Periodos fixos">
+              {PERIOD_OPTIONS.filter(p => !['month_picker','custom'].includes(p.value)).map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Mes especifico">
+              <option value="month_picker">Escolher mes/ano...</option>
+            </optgroup>
+            <optgroup label="Personalizado">
+              <option value="custom">Periodo personalizado</option>
+            </optgroup>
+          </select>
+
+          {period === 'month_picker' && (
+            <div className="flex gap-2">
+              <select className="select w-32" value={monthPickerMonth} onChange={e => setMonthPickerMonth(parseInt(e.target.value))}>
+                {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select className="select w-24" value={monthPickerYear} onChange={e => setMonthPickerYear(parseInt(e.target.value))}>
+                {Array.from({length:6}, (_,i) => new Date().getFullYear()-i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {period === 'custom' && (
             <div className="flex gap-2 items-center">
-  <select className="select w-44" value={period} onChange={e => setPeriod(e.target.value)}>
-    <optgroup label="Periodos fixos">
-      {PERIOD_OPTIONS.filter(p => p.value !== 'custom').map(p => (
-        <option key={p.value} value={p.value}>{p.label}</option>
-      ))}
-    </optgroup>
-    <optgroup label="Mes especifico">
-      <option value="month_picker">Escolher mes/ano...</option>
-    </optgroup>
-    <optgroup label="Personalizado">
-      <option value="custom">Periodo personalizado</option>
-    </optgroup>
-  </select>
-  {period === 'month_picker' && (
-    <div className="flex gap-2">
-      <select className="select w-36" value={monthPickerMonth} onChange={e => setMonthPickerMonth(parseInt(e.target.value))}>
-        {['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m,i) => (
-          <option key={i} value={i}>{m}</option>
-        ))}
-      </select>
-      <select className="select w-24" value={monthPickerYear} onChange={e => setMonthPickerYear(parseInt(e.target.value))}>
-        {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(y => (
-          <option key={y} value={y}>{y}</option>
-        ))}
-      </select>
-    </div>
-  )}
-</div>
-            {period === 'custom' && (
-              <>
-                <input type="date" className="select w-36" value={customStart} onChange={e => setCustomStart(e.target.value)} />
-                <span className="text-xs text-gray-400">até</span>
-                <input type="date" className="select w-36" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
-              </>
-            )}
-          </div>
+              <input type="date" className="select w-36" value={customStart} onChange={e => setCustomStart(e.target.value)} />
+              <span className="text-xs text-gray-400">até</span>
+              <input type="date" className="select w-36" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
+            </div>
+          )}
+
           <button onClick={exportXLSX} className="btn">
             <Download size={14} /> Exportar Excel
           </button>
@@ -348,7 +317,7 @@ export default function RelatoriosPage() {
             </div>
           )}
 
-          {/* EMPRESAS */}
+          {/* EMPRESAS — LISTA */}
           {tab === 'Empresas' && !selectedCompany && (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
@@ -397,19 +366,14 @@ export default function RelatoriosPage() {
             </div>
           )}
 
-          {/* EMPRESA DETALHE */}
+          {/* EMPRESAS — DETALHE */}
           {tab === 'Empresas' && selectedCompany && selectedCompanyData && (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <button onClick={() => setSelectedCompany(null)}
-                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700">
-                  ← Voltar
-                </button>
+                <button onClick={() => setSelectedCompany(null)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700">← Voltar</button>
                 <h2 className="text-base font-semibold text-gray-900">{selectedCompanyData.name}</h2>
                 <span className="text-xs text-gray-400">{selectedCompanyData.total} atendimentos</span>
               </div>
-
-              {/* Métricas da empresa */}
               <div className="grid grid-cols-4 gap-3">
                 {[
                   { label:'Total',       value:selectedCompanyData.total,       cls:'text-gray-900' },
@@ -423,8 +387,6 @@ export default function RelatoriosPage() {
                   </div>
                 ))}
               </div>
-
-              {/* Tipos mais solicitados por essa empresa */}
               <div className="card">
                 <div className="card-header"><span className="card-title">Tipos de solicitacao desta empresa</span></div>
                 <div className="card-body">
@@ -445,8 +407,6 @@ export default function RelatoriosPage() {
                   })()}
                 </div>
               </div>
-
-              {/* Lista de atendimentos da empresa */}
               <div className="card">
                 <div className="card-header">
                   <span className="card-title">Atendimentos</span>
@@ -471,7 +431,7 @@ export default function RelatoriosPage() {
             </div>
           )}
 
-          {/* TIPOS DE SOLICITACAO */}
+          {/* TIPOS */}
           {tab === 'Tipos de Solicitacao' && (
             <div className="grid grid-cols-2 gap-5">
               <div className="card">
@@ -480,8 +440,7 @@ export default function RelatoriosPage() {
                   <ResponsiveContainer width="100%" height={280}>
                     <PieChart>
                       <Pie data={byType} cx="50%" cy="45%" outerRadius={90} dataKey="value" nameKey="name"
-                        label={({ name, percent }) => percent>0.05?(percent*100).toFixed(0)+'%':''}
-                        labelLine={false} fontSize={11}>
+                        label={({ name, percent }) => percent>0.05?(percent*100).toFixed(0)+'%':''} labelLine={false} fontSize={11}>
                         {byType.map((_,i) => <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
                       </Pie>
                       <Tooltip formatter={(v:number,n:string)=>[v+' atendimentos',n]} />
@@ -506,12 +465,10 @@ export default function RelatoriosPage() {
               </div>
               <div className="card col-span-2">
                 <div className="table-header grid" style={{gridTemplateColumns:'1fr 100px 100px 100px 120px'}}>
-                  <span>Tipo de solicitacao</span><span>Total</span><span>Finalizados</span><span>Em aberto</span><span>% do total</span>
+                  <span>Tipo</span><span>Total</span><span>Finalizados</span><span>Em aberto</span><span>% do total</span>
                 </div>
                 {byType.map((t,i) => {
-                  const fins = selectedCompanyData
-                    ? selectedCompanyData.tickets.filter(tk=>getTypeName(tk)===t.name&&tk.status==='finalizado').length
-                    : tickets.filter(tk=>getTypeName(tk)===t.name&&tk.status==='finalizado').length
+                  const fins = tickets.filter(tk=>getTypeName(tk)===t.name&&tk.status==='finalizado').length
                   const abts = tickets.filter(tk=>getTypeName(tk)===t.name&&!['finalizado','cancelado','rascunho'].includes(tk.status)).length
                   return (
                     <div key={i} className="table-row grid" style={{gridTemplateColumns:'1fr 100px 100px 100px 120px'}}>
