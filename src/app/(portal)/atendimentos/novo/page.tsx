@@ -138,19 +138,19 @@ export default function NovoAtendimentoPage() {
     const status = isDraft ? 'rascunho' : 'aberto'
 
     const payload: Record<string, unknown> = {
-  company_id:     selectedCompany?.id ?? null,
-  company_name_free: !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
-  requester_name: form.requester_name || 'Nao informado',
-  employee_name:  form.employee_name || null,
-  attendant_id:   form.attendant_id || null,
-  type:           'outros',
-  type_name:      selectedType?.name ?? null,
-  description:    form.description,
-  department:     form.department,
-  priority:       form.priority,
+  company_id:         selectedCompany?.id ?? null,
+  company_name_free:  !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
+  requester_name:     form.requester_name || 'Nao informado',
+  employee_name:      form.employee_name || null,
+  attendant_id:       form.attendant_id || null,
+  type:               'outros',
+  type_name:          selectedType?.name ?? null,
+  description:        form.description,
+  department:         form.department,
+  priority:           form.priority,
   status,
-  protocol:       '',
-  created_by:     '00000000-0000-0000-0000-000000000001',
+  protocol:           '',
+  created_by:         '00000000-0000-0000-0000-000000000001',
 }
 
     const { data, error: err } = await supabase
