@@ -168,7 +168,7 @@ export default function TiposPage() {
                       <span className="text-xs text-gray-400 font-normal">({items.length} tipo{items.length !== 1 ? 's' : ''})</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {[...new Set(items.map(i => i.subcategory).filter(Boolean))].slice(0,4).map(sub => (
+                     {Array.from(new Set(items.map(i => i.subcategory).filter(Boolean))).slice(0,4).map(sub => (
                         <span key={sub} className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-500">{sub}</span>
                       ))}
                     </div>
