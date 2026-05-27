@@ -380,20 +380,27 @@ export default function TicketDetailPage() {
                     const userName = (item.user as any)?.full_name ?? 'Sistema'
                     const elapsed = (item as any).elapsed_seconds
                     return (
-                      <li key={item.id} className="relative">
-                        <span className={cn('absolute -left-[25px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-white', dot)} />
-                        <div className="text-sm font-medium text-gray-900">{item.observation ?? item.action}</div>
-                        {elapsed && elapsed > 0 && (
-                          <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
-                            <Clock size={10} />
-                            <span>Tempo nesta etapa: {formatDuration(elapsed)}</span>
-                          </div>
-                        )}
-                        <div className="flex gap-3 mt-1 text-xs text-gray-400">
-                          <span className="font-medium">{userName}</span>
-                          <span title={formatDate(item.created_at)}>{timeAgo(item.created_at)}</span>
-                        </div>
-                      </li>
+                     <li key={item.id} className="relative">
+  <span className={cn('absolute -left-[25px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-white', dot)} />
+  {item.observation && item.observation !== item.action ? (
+    <>
+      <div className="text-sm font-medium text-gray-900 whitespace-pre-wrap">{item.observation}</div>
+      <div className="text-xs text-gray-400 mt-0.5 italic">{item.action}</div>
+    </>
+  ) : (
+    <div className="text-sm text-gray-600 italic">{item.action}</div>
+  )}
+  {elapsed && elapsed > 0 && (
+    <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+      <Clock size={10} />
+      <span>Tempo nesta etapa: {formatDuration(elapsed)}</span>
+    </div>
+  )}
+  <div className="flex gap-3 mt-1 text-xs text-gray-400">
+    <span className="font-medium">{userName}</span>
+    <span title={formatDate(item.created_at)}>{timeAgo(item.created_at)}</span>
+  </div>
+</li>
                     )
                   })}
                 </ol>
