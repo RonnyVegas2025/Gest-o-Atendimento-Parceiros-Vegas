@@ -382,7 +382,7 @@ export default function TicketDetailPage() {
                     return (
                       <li key={item.id} className="relative">
                         <span className={cn('absolute -left-[25px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-white', dot)} />
-                        <div className="text-sm font-medium text-gray-900">{item.action}</div>
+                        <div className="text-sm font-medium text-gray-900">{item.observation ?? item.action}</div>
                         {elapsed && elapsed > 0 && (
                           <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
                             <Clock size={10} />
