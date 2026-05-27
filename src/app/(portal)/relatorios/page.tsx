@@ -218,21 +218,35 @@ export default function RelatoriosPage() {
         <div className="flex gap-2 items-center flex-wrap">
           {/* Seletor de período */}
           <div className="flex gap-2 items-center">
-            <select className="select w-52" value={period} onChange={e => setPeriod(e.target.value)}>
-              <optgroup label="Periodos fixos">
-                {PERIOD_OPTIONS.filter(p => p.value !== 'custom').map(p => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Meses fechados">
-                {closedMonths.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Personalizado">
-                <option value="custom">Periodo personalizado</option>
-              </optgroup>
-            </select>
+            <div className="flex gap-2 items-center">
+  <select className="select w-44" value={period} onChange={e => setPeriod(e.target.value)}>
+    <optgroup label="Periodos fixos">
+      {PERIOD_OPTIONS.filter(p => p.value !== 'custom').map(p => (
+        <option key={p.value} value={p.value}>{p.label}</option>
+      ))}
+    </optgroup>
+    <optgroup label="Mes especifico">
+      <option value="month_picker">Escolher mes/ano...</option>
+    </optgroup>
+    <optgroup label="Personalizado">
+      <option value="custom">Periodo personalizado</option>
+    </optgroup>
+  </select>
+  {period === 'month_picker' && (
+    <div className="flex gap-2">
+      <select className="select w-36" value={monthPickerMonth} onChange={e => setMonthPickerMonth(parseInt(e.target.value))}>
+        {['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m,i) => (
+          <option key={i} value={i}>{m}</option>
+        ))}
+      </select>
+      <select className="select w-24" value={monthPickerYear} onChange={e => setMonthPickerYear(parseInt(e.target.value))}>
+        {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(y => (
+          <option key={y} value={y}>{y}</option>
+        ))}
+      </select>
+    </div>
+  )}
+</div>
             {period === 'custom' && (
               <>
                 <input type="date" className="select w-36" value={customStart} onChange={e => setCustomStart(e.target.value)} />
