@@ -338,7 +338,7 @@ export default function TicketDetailPage() {
                 <div><div className="text-xs text-gray-400 mb-0.5">Empresa</div><div className="text-sm font-medium text-gray-900">{ticket.company_legal_name}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Solicitante</div><div className="text-sm font-medium text-gray-900">{ticket.requester_name}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Colaborador</div><div className="text-sm font-medium text-gray-900">{ticket.employee_name ?? '—'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{TYPE_LABELS[ticket.type] ?? ticket.type}</div></div>
+               <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{(ticket as any).type_name ?? TYPE_LABELS[ticket.type] ?? ticket.type}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Departamento</div><div className="text-sm font-medium text-gray-900">{currentDeptLabel}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? '—'}</div></div>
               </div>
