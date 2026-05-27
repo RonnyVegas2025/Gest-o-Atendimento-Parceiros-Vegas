@@ -32,6 +32,8 @@ const PRIORITY_LABELS: Record<string, string> = {
 interface TicketType {
   id: string
   name: string
+  category: string | null
+  subcategory: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -260,12 +262,26 @@ export default function NovoAtendimentoPage() {
                 {/* Tipo — carrega do banco */}
                 <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
-                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
-                    <option value="">Selecione o tipo...</option>
-                    {ticketTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
+                 <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
+  <option value="">Selecione o tipo...</option>
+  {(() => {
+    const grouped: Record<string, typeof ticketTypes> = {}
+    ticketTypes.forEach(t => {
+      const cat = (t as any).category || 'Geral'
+      if (!grouped[cat]) grouped[cat] = []
+      grouped[cat].push(t)
+    })
+    return Object.entries(grouped).map(([cat, items]) => (
+      <optgroup key={cat} label={cat}>
+        {items.map(t => (
+          <option key={t.id} value={t.id}>
+            {(t as any).subcategory ? `${(t as any).subcategory} › ` : ''}{t.name}
+          </option>
+        ))}
+      </optgroup>
+    ))
+  })()}
+</select>
                   {/* Preview SLA e prioridade automaticos */}
                   {selectedType && (
                     <div className="flex items-center gap-3 mt-2">
