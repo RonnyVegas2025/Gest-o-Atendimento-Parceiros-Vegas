@@ -335,7 +335,7 @@ export default function TicketDetailPage() {
             <div className="card-header"><span className="card-title">Informacoes</span></div>
             <div className="card-body">
               <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-5">
-                <div><div className="text-xs text-gray-400 mb-0.5">Empresa</div><div className="text-sm font-medium text-gray-900">{ticket.company_legal_name}</div></div>
+                <div><div className="text-xs text-gray-400 mb-0.5">Empresa</div><div className="text-sm font-medium text-gray-900">{ticket.company_legal_name ?? (ticket as any).company_name_free ?? 'Não informada'}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Solicitante</div><div className="text-sm font-medium text-gray-900">{ticket.requester_name}</div></div>
                 <div><div className="text-xs text-gray-400 mb-0.5">Colaborador</div><div className="text-sm font-medium text-gray-900">{ticket.employee_name ?? '—'}</div></div>
                <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{(ticket as any).type_name ?? TYPE_LABELS[ticket.type] ?? ticket.type}</div></div>
