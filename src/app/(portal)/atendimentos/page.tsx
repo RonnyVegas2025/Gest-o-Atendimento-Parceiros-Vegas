@@ -170,7 +170,7 @@ export default function AtendimentosPage() {
                 <div className="text-sm font-medium text-gray-900 truncate">{getCompanyName(ticket)}</div>
                 <div className="text-xs text-gray-400">{ticket.requester_name}</div>
               </div>
-              <span className="text-xs text-gray-500">{DEPARTMENT_LABELS[ticket.department as any] ?? ticket.department}</span>
+              <span className="text-xs text-gray-500">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
               <PriorityBadge priority={ticket.priority} />
               <span className={cn('badge', STATUS_BADGE['rascunho'])}>Rascunho</span>
               <span className="text-xs text-gray-400">{formatDateShort(ticket.created_at)}</span>
@@ -248,7 +248,7 @@ export default function AtendimentosPage() {
               <div className="text-xs text-gray-400 truncate">{getTypeName(ticket)}</div>
             </div>
             <span className="text-xs text-gray-600 truncate self-center">{ticket.attendant_name ?? '—'}</span>
-            <span className="text-xs text-gray-500 self-center">{DEPARTMENT_LABELS[ticket.department as any] ?? ticket.department}</span>
+            <span className="text-xs text-gray-500 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
             <div className="self-center w-full pr-2">
               <SlaBar ticket={ticket} />
             </div>
@@ -282,7 +282,7 @@ export default function AtendimentosPage() {
                 <div className="text-xs text-gray-300 truncate">{getTypeName(ticket)}</div>
               </div>
               <span className="text-xs text-gray-400 self-center">{ticket.attendant_name ?? '—'}</span>
-              <span className="text-xs text-gray-400 self-center">{DEPARTMENT_LABELS[ticket.department as any] ?? ticket.department}</span>
+              <span className="text-xs text-gray-400 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
               <span className="text-xs text-gray-400 self-center">
                 {ticket.open_seconds > 0
                   ? ticket.open_seconds >= 3600
