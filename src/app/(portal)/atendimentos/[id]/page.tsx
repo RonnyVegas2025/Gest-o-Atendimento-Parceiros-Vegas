@@ -389,8 +389,21 @@ const actionText = `[${deptLabel} → ${statusLabel}] ${obsComImagens}`
   <span className={cn('absolute -left-[25px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-white', dot)} />
   {item.observation && item.observation !== item.action ? (
     <>
-      <div className="text-sm font-medium text-gray-900 whitespace-pre-wrap">{item.observation}</div>
-      <div className="text-xs text-gray-400 mt-0.5 italic">{item.action}</div>
+      <div className="text-sm font-medium text-gray-900">
+  {(item.observation ?? '').split('\n').map((line: string, i: number) => {
+    const imgMatch = line.match(/!\[imagem\]\((https?:\/\/[^\)]+)\)/)
+    if (imgMatch) {
+      return (
+        <img key={i} src={imgMatch[1]} alt="imagem anexada"
+          className="h-32 w-auto max-w-xs rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 mt-1 block"
+          onClick={() => window.open(imgMatch[1], '_blank')}
+        />
+      )
+    }
+    return line ? <p key={i} className="whitespace-pre-wrap">{line}</p> : <br key={i} />
+  })}
+</div>
+<div className="text-xs text-gray-400 mt-0.5 italic">{item.action}</div>
     </>
   ) : (
     <div className="text-sm text-gray-600 italic">{item.action}</div>
