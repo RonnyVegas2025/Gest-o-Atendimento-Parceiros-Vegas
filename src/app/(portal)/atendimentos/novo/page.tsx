@@ -142,7 +142,6 @@ export default function NovoAtendimentoPage() {
   requester_name: form.requester_name || 'Nao informado',
   employee_name:  form.employee_name || null,
   attendant_id:   form.attendant_id || null,
-  type_id:        form.type_id || null,
   type:           selectedType?.name ?? 'outros',
   description:    form.description,
   department:     form.department,
