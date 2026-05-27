@@ -139,6 +139,7 @@ export default function NovoAtendimentoPage() {
 
     const payload: Record<string, unknown> = {
   company_id:     selectedCompany?.id ?? null,
+  company_name_free: !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
   requester_name: form.requester_name || 'Nao informado',
   employee_name:  form.employee_name || null,
   attendant_id:   form.attendant_id || null,
