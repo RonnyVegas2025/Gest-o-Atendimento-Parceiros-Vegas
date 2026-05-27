@@ -71,7 +71,7 @@ export default function TiposPage() {
     return map
   }, [types])
 
-  const categories = useMemo(() => [...new Set(types.map(t => t.category).filter(Boolean))], [types])
+  const categories = useMemo(() => Array.from(new Set(types.map(t => t.category).filter(Boolean))), [types])
 
   function openNew() {
     setForm(EMPTY)
