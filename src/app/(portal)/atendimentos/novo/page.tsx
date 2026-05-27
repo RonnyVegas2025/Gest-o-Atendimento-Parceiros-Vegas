@@ -138,18 +138,19 @@ export default function NovoAtendimentoPage() {
     const status = isDraft ? 'rascunho' : 'aberto'
 
     const payload: Record<string, unknown> = {
-      company_id:     selectedCompany?.id ?? null,
-      requester_name: form.requester_name || 'Nao informado',
-      employee_name:  form.employee_name || null,
-      attendant_id:   form.attendant_id || null,
-      type:           'outros',
-      description:    selectedType ? '[' + selectedType.name + '] ' + form.description : form.description,
-      department:     form.department,
-      priority:       form.priority,
-      status,
-      protocol:       '',
-      created_by:     '00000000-0000-0000-0000-000000000001',
-    }
+  company_id:     selectedCompany?.id ?? null,
+  requester_name: form.requester_name || 'Nao informado',
+  employee_name:  form.employee_name || null,
+  attendant_id:   form.attendant_id || null,
+  type_id:        form.type_id || null,
+  type:           selectedType?.name ?? 'outros',
+  description:    form.description,
+  department:     form.department,
+  priority:       form.priority,
+  status,
+  protocol:       '',
+  created_by:     '00000000-0000-0000-0000-000000000001',
+}
 
     const { data, error: err } = await supabase
       .from('tickets').insert(payload).select('id, protocol').single()
