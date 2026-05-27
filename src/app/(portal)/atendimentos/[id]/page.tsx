@@ -64,6 +64,7 @@ export default function TicketDetailPage() {
   const [obsText, setObsText] = useState('')
   const [actionDept, setActionDept] = useState('')
   const [actionStatus, setActionStatus] = useState('')
+  const [obsImages, setObsImages] = useState<string[]>([])
 
   // Edição inline das informações
   const [editing, setEditing] = useState(false)
