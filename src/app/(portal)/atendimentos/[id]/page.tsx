@@ -137,7 +137,11 @@ export default function TicketDetailPage() {
     const deptLabel = DEPARTMENTS.find(d => d.value === actionDept)?.label ?? actionDept
     const statusLabel = STATUS_TRANS[actionStatus] ?? actionStatus
 
-    const actionText = `[${deptLabel} → ${statusLabel}] ${obsText.trim()}`
+    const obsComImagens = obsText.trim() + (obsImages.length > 0
+  ? '\n\n' + obsImages.map((url: string) => `![imagem](${url})`).join('\n')
+  : '')
+
+const actionText = `[${deptLabel} → ${statusLabel}] ${obsComImagens}`
 
     // Atualiza ticket
     const updates: Record<string, any> = {
@@ -156,7 +160,7 @@ export default function TicketDetailPage() {
     await supabase.from('ticket_history').insert({
       ticket_id: id,
       action: actionText,
-      observation: obsText.trim(),
+      observation: obsComImagens,
       from_status: ticket?.status,
       to_status: actionStatus,
       user_id: '00000000-0000-0000-0000-000000000001',
@@ -416,12 +420,13 @@ export default function TicketDetailPage() {
                 <span className="card-title text-blue-800">Registrar atualização</span>
               </div>
               <div className="card-body space-y-4">
-                <PasteTextarea
-                  value={obsText}
-                  onChange={setObsText}
-                  placeholder="Descreva o que foi feito, resultado da ligação, retorno do cliente... Use Ctrl+V para colar prints."
-                  rows={3}
-                />
+               <PasteTextarea
+  value={obsText}
+  onChange={setObsText}
+  onImagesChange={setObsImages}
+  placeholder="Descreva o que foi feito, resultado da ligação, retorno do cliente... Use Ctrl+V para colar prints."
+  rows={3}
+/>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="form-group">
                     <label className="form-label">Departamento responsável agora</label>
