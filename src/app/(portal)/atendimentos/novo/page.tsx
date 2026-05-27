@@ -299,15 +299,14 @@ export default function NovoAtendimentoPage() {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Descricao *</label>
-                <PasteTextarea
-                  value={form.description}
-                  onChange={v => set('description', v)}
-                  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints..."
-                  rows={4}
-                  required
-                />
+              <PasteTextarea
+  value={form.description}
+  onChange={v => set('description', v)}
+  onImagesChange={() => {}}
+  placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints..."
+  rows={4}
+  required
+/>
               </div>
             </div>
           </div>
