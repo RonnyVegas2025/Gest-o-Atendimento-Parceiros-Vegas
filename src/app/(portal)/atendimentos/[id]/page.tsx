@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, formatDate, timeAgo, formatDuration } from '@/lib/utils'
 import { STATUS_LABELS, STATUS_COLORS, PRIORITY_DOT } from '@/lib/constants'
 import type { TicketWithDetails, TicketHistory, Company } from '@/lib/types'
-import { ArrowLeft, Clock, Building2, Send, ArrowRight, CheckCircle2, XCircle, AlertTriangle, Search, Zap, Edit2 } from 'lucide-react'
+import { ArrowLeft, Clock, Building2, Send, CheckCircle2, XCircle, AlertTriangle, Search, Zap, Edit2, X, Check } from 'lucide-react'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import Link from 'next/link'
 
@@ -21,50 +21,19 @@ const DEPARTMENTS = [
 ]
 
 const DEPT_COLORS: Record<string, string> = {
-  comercial:   'bg-blue-100 text-blue-700',
-  cadastro:    'bg-purple-100 text-purple-700',
-  financeiro:  'bg-amber-100 text-amber-700',
-  operacional: 'bg-green-100 text-green-700',
-  rede:        'bg-cyan-100 text-cyan-700',
-  marketing:   'bg-pink-100 text-pink-700',
-  juridico:    'bg-red-100 text-red-700',
-  logistica:   'bg-orange-100 text-orange-700',
+  comercial: 'bg-blue-100 text-blue-700', cadastro: 'bg-purple-100 text-purple-700',
+  financeiro: 'bg-amber-100 text-amber-700', operacional: 'bg-green-100 text-green-700',
+  rede: 'bg-cyan-100 text-cyan-700', marketing: 'bg-pink-100 text-pink-700',
+  juridico: 'bg-red-100 text-red-700', logistica: 'bg-orange-100 text-orange-700',
 }
 
-const NEXT_STATUSES: Record<string, { value: string; label: string }[]> = {
-  aberto: [{ value: 'em_analise', label: 'Iniciar analise' }],
-  em_analise: [
-    { value: 'em_andamento',       label: 'Colocar em andamento' },
-    { value: 'encaminhado',        label: 'Encaminhar para depto' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno' },
-    { value: 'finalizado',         label: 'Finalizar atendimento' },
-  ],
-  encaminhado: [
-    { value: 'em_andamento',       label: 'Depto concluiu - retomar ADM Comercial' },
-    { value: 'encaminhado',        label: 'Reencaminhar para outro depto' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno' },
-    { value: 'finalizado',         label: 'Finalizar diretamente' },
-  ],
-  em_andamento: [
-    { value: 'finalizado',         label: 'Finalizar atendimento' },
-    { value: 'encaminhado',        label: 'Encaminhar para depto' },
-    { value: 'aguardando_retorno', label: 'Aguardar retorno cliente' },
-  ],
-  aguardando_retorno: [
-    { value: 'em_andamento', label: 'Cliente retornou - retomar' },
-    { value: 'encaminhado',  label: 'Encaminhar para depto' },
-    { value: 'finalizado',   label: 'Finalizar atendimento' },
-  ],
-  rascunho: [],
-  finalizado: [],
-  cancelado:  [],
-}
-
-const STATUS_TRANS: Record<string, string> = {
-  rascunho: 'Rascunho', aberto: 'Aberto', em_analise: 'Em analise',
-  encaminhado: 'Encaminhado', em_andamento: 'Em andamento',
-  aguardando_retorno: 'Aguardando retorno', finalizado: 'Finalizado', cancelado: 'Cancelado',
-}
+const ACTION_STATUSES = [
+  { value: 'em_analise',        label: 'Em análise' },
+  { value: 'em_andamento',      label: 'Em andamento' },
+  { value: 'encaminhado',       label: 'Encaminhado para depto' },
+  { value: 'aguardando_retorno',label: 'Aguardando retorno' },
+  { value: 'finalizado',        label: '✓ Concluído' },
+]
 
 const TL_COLORS: Record<string, string> = {
   aberto: 'bg-blue-500', em_analise: 'bg-amber-400', encaminhado: 'bg-purple-500',
@@ -72,10 +41,10 @@ const TL_COLORS: Record<string, string> = {
   finalizado: 'bg-green-600', cancelado: 'bg-red-500', rascunho: 'bg-amber-300',
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  segunda_via_cartao: 'Segunda via cartao', inclusao_colaborador: 'Inclusao colaborador',
-  exclusao_colaborador: 'Exclusao colaborador', alteracao_cadastro: 'Alteracao cadastro',
-  problema_saldo: 'Problema saldo', problema_cartao: 'Problema cartao', outros: 'Outros',
+const STATUS_TRANS: Record<string, string> = {
+  rascunho: 'Rascunho', aberto: 'Aberto', em_analise: 'Em analise',
+  encaminhado: 'Encaminhado', em_andamento: 'Em andamento',
+  aguardando_retorno: 'Aguardando retorno', finalizado: 'Finalizado', cancelado: 'Cancelado',
 }
 
 const PRIORITY_LABELS: Record<string, string> = { baixa: 'Baixa', media: 'Media', alta: 'Alta' }
@@ -89,49 +58,51 @@ export default function TicketDetailPage() {
   const [ticket, setTicket] = useState<TicketWithDetails | null>(null)
   const [history, setHistory] = useState<TicketHistory[]>([])
   const [loading, setLoading] = useState(true)
-  const [actionStatus, setActionStatus] = useState('')
-  const [actionDept, setActionDept] = useState('')
-  const [actionObs, setActionObs] = useState('')
   const [saving, setSaving] = useState(false)
-  const [obsText, setObsText] = useState('')
-  const [savingObs, setSavingObs] = useState(false)
 
-  // Completar rascunho
-  const [companies, setCompanies] = useState<Company[]>([])
-  const [filteredCompanies, setFilteredCompanies] = useState<Company[]>([])
+  // Campo de registro de ação
+  const [obsText, setObsText] = useState('')
+  const [actionDept, setActionDept] = useState('')
+  const [actionStatus, setActionStatus] = useState('')
+
+  // Edição inline das informações
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    company_name: '', requester_name: '', employee_name: '',
+    attendant_id: '', department: '', priority: '', type_name: '',
+  })
+  const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
+  const [companies, setCompanies] = useState<any[]>([])
   const [companySearch, setCompanySearch] = useState('')
-  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
+  const [selectedCompany, setSelectedCompany] = useState<any>(null)
   const [showDropdown, setShowDropdown] = useState(false)
-  const [editRequester, setEditRequester] = useState('')
-  const [editEmployee, setEditEmployee] = useState('')
-  const [editDept, setEditDept] = useState('comercial')
-  const [editPriority, setEditPriority] = useState('media')
-  const [completing, setCompleting] = useState(false)
+  const [filtered, setFiltered] = useState<any[]>([])
+  const [savingEdit, setSavingEdit] = useState(false)
 
   useEffect(() => { fetchData() }, [id])
 
   useEffect(() => {
     Promise.all([
+      supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name'),
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
-      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
-    ]).then(([{ data: comp }, { data: conv }]) => {
-      const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
-      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
-      const all = [...fromCompanies, ...fromConveniadas]
-      setCompanies(all as any)
-      setFilteredCompanies(all as any)
+      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia'),
+    ]).then(([{ data: att }, { data: comp }, { data: conv }]) => {
+      setAttendants((att as any[]) ?? [])
+      const fromComp = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
+      const fromConv = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
+      setCompanies([...fromComp, ...fromConv])
     })
   }, [])
 
   useEffect(() => {
-    if (!companySearch || companySearch.length < 2) { setFilteredCompanies([]); return }
+    if (!companySearch || companySearch.length < 2) { setFiltered([]); return }
     const q = companySearch.toLowerCase()
     const digits = companySearch.replace(/\D/g, '')
-    setFilteredCompanies(companies.filter((c: any) =>
+    setFiltered(companies.filter((c: any) =>
       (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
       (digits.length >= 3 && (c.cnpj ?? '').includes(digits))
-    ))
+    ).slice(0, 6))
   }, [companySearch, companies])
 
   async function fetchData() {
@@ -143,68 +114,90 @@ export default function TicketDetailPage() {
     setHistory((h as TicketHistory[]) ?? [])
     setLoading(false)
     if (t) {
-      setActionDept((t as any).department)
-      setEditRequester((t as any).requester_name ?? '')
-      setEditEmployee((t as any).employee_name ?? '')
-      setEditDept((t as any).department ?? 'comercial')
-      setEditPriority((t as any).priority ?? 'media')
+      setActionDept((t as any).department ?? 'comercial')
+      setEditForm({
+        company_name: (t as any).company_name_free ?? (t as any).company_legal_name ?? '',
+        requester_name: (t as any).requester_name ?? '',
+        employee_name: (t as any).employee_name ?? '',
+        attendant_id: (t as any).attendant_id ?? '',
+        department: (t as any).department ?? 'comercial',
+        priority: (t as any).priority ?? 'media',
+        type_name: (t as any).type_name ?? (t as any).type ?? '',
+      })
     }
   }
 
-  async function completeRascunho() {
-    setCompleting(true)
-    const updates: Record<string, unknown> = {
-      status: 'aberto',
-      requester_name: editRequester || 'Nao informado',
-      employee_name: editEmployee || null,
-      department: editDept,
-      priority: editPriority,
+  async function handleRegistrar() {
+    if (!obsText.trim()) return
+    if (!actionStatus) { alert('Selecione o status atual do atendimento'); return }
+    setSaving(true)
+
+    const isFinalizado = actionStatus === 'finalizado'
+    const deptLabel = DEPARTMENTS.find(d => d.value === actionDept)?.label ?? actionDept
+    const statusLabel = STATUS_TRANS[actionStatus] ?? actionStatus
+
+    const actionText = `[${deptLabel} → ${statusLabel}] ${obsText.trim()}`
+
+    // Atualiza ticket
+    const updates: Record<string, any> = {
+      status: actionStatus,
+      department: actionDept,
     }
-    if (selectedCompany) updates.company_id = selectedCompany.id
+    if (isFinalizado) updates.closed_at = new Date().toISOString()
+
+    await supabase.from('tickets').update(updates).eq('id', id)
+
+    // Registra histórico com tempo
+    const lastHistory = history[history.length - 1]
+    const lastTime = lastHistory ? new Date(lastHistory.created_at) : (ticket ? new Date((ticket as any).created_at) : new Date())
+    const elapsedSeconds = Math.floor((Date.now() - lastTime.getTime()) / 1000)
+
+    await supabase.from('ticket_history').insert({
+      ticket_id: id,
+      action: actionText,
+      observation: obsText.trim(),
+      from_status: ticket?.status,
+      to_status: actionStatus,
+      user_id: '00000000-0000-0000-0000-000000000001',
+      elapsed_seconds: elapsedSeconds,
+    })
+
+    setObsText('')
+    setActionStatus('')
+    setSaving(false)
+    fetchData()
+  }
+
+  async function handleSaveEdit() {
+    setSavingEdit(true)
+    const updates: Record<string, any> = {
+      requester_name: editForm.requester_name,
+      employee_name: editForm.employee_name || null,
+      attendant_id: editForm.attendant_id || null,
+      department: editForm.department,
+      priority: editForm.priority,
+      type_name: editForm.type_name || null,
+    }
+    if (selectedCompany) {
+      updates.company_id = selectedCompany.id
+      updates.company_name_free = null
+    } else if (companySearch.trim()) {
+      updates.company_name_free = companySearch.trim()
+      updates.company_id = null
+    }
 
     await supabase.from('tickets').update(updates).eq('id', id)
     await supabase.from('ticket_history').insert({
       ticket_id: id,
-      action: 'Pre-atendimento convertido em atendimento oficial' + (selectedCompany ? ' - Empresa: ' + (selectedCompany.trade_name || selectedCompany.legal_name) : ''),
-      to_status: 'aberto',
+      action: 'Informacoes do atendimento editadas',
       user_id: '00000000-0000-0000-0000-000000000001',
     })
-    setCompleting(false)
-    fetchData()
-  }
 
-  async function handleAction() {
-    if (!actionStatus) return
-    setSaving(true)
-    const isForwarding = actionStatus === 'encaminhado'
-    const isReturning = actionStatus === 'em_andamento' && ticket?.status === 'encaminhado'
-    const deptLabel = DEPARTMENTS.find(d => d.value === actionDept)?.label ?? actionDept
-    const statusLabel = STATUS_TRANS[actionStatus] ?? actionStatus
-    let actionText = 'Status alterado para "' + statusLabel + '"'
-    if (isForwarding) actionText = 'Encaminhado para: ' + deptLabel
-    if (isReturning)  actionText = deptLabel + ' concluiu - retomado pelo ADM Comercial'
-    if (actionObs) actionText += ' - ' + actionObs
-    const updatePayload: Record<string, string> = { status: actionStatus }
-    if (isForwarding) updatePayload.department = actionDept
-    if (isReturning)  updatePayload.department = 'comercial'
-    await supabase.from('tickets').update(updatePayload).eq('id', id)
-    await supabase.from('ticket_history').insert({
-      ticket_id: id, action: actionText, observation: actionObs || null,
-      from_status: ticket?.status, to_status: actionStatus,
-      user_id: '00000000-0000-0000-0000-000000000001',
-    })
-    setActionStatus(''); setActionObs(''); setSaving(false)
+    setSavingEdit(false)
+    setEditing(false)
+    setSelectedCompany(null)
+    setCompanySearch('')
     fetchData()
-  }
-
-  async function handleObs() {
-    if (!obsText.trim()) return
-    setSavingObs(true)
-    await supabase.from('ticket_history').insert({
-      ticket_id: id, action: obsText.trim(), observation: obsText.trim(),
-      user_id: '00000000-0000-0000-0000-000000000001',
-    })
-    setObsText(''); setSavingObs(false); fetchData()
   }
 
   async function cancelTicket() {
@@ -221,12 +214,14 @@ export default function TicketDetailPage() {
   if (loading) return <div className="p-6 text-sm text-gray-400">Carregando...</div>
   if (!ticket) return <div className="p-6 text-sm text-red-500">Atendimento nao encontrado.</div>
 
-  const isDraft = ticket.status === 'rascunho'
   const isClosed = ['finalizado', 'cancelado'].includes(ticket.status)
-  const nextActions = NEXT_STATUSES[ticket.status] ?? []
+  const isDraft = ticket.status === 'rascunho'
   const currentDeptLabel = DEPARTMENTS.find(d => d.value === ticket.department)?.label ?? ticket.department
-  const slaTotal = ticket.sla_deadline ? (new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()) / 1000 : 0
-  const sla = slaTotal > 0 ? Math.min(100, Math.round((ticket.open_seconds / slaTotal) * 100)) : 0
+  const slaTotal = (ticket as any).sla_deadline ? (new Date((ticket as any).sla_deadline).getTime() - new Date(ticket.created_at).getTime()) / 1000 : 0
+  const sla = slaTotal > 0 ? Math.min(100, Math.round(((ticket as any).open_seconds / slaTotal) * 100)) : 0
+
+  const companyDisplay = (ticket as any).company_name_free ?? (ticket as any).company_legal_name ?? 'Não informada'
+  const typeName = (ticket as any).type_name ?? (ticket as any).type ?? '—'
 
   return (
     <div className="p-6">
@@ -242,132 +237,157 @@ export default function TicketDetailPage() {
         <span className={cn('badge', DEPT_COLORS[ticket.department] ?? 'bg-gray-100 text-gray-600')}>
           {currentDeptLabel}
         </span>
-        {ticket.sla_breached && (
+        {(ticket as any).sla_breached && (
           <span className="badge bg-red-50 text-red-600 border border-red-200">
             <AlertTriangle size={11} /> SLA vencido
           </span>
         )}
+        {!isClosed && (
+          <button onClick={cancelTicket} className="ml-auto flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg border border-red-200 transition-colors">
+            <XCircle size={13} /> Cancelar atendimento
+          </button>
+        )}
       </div>
 
-      {/* Banner rascunho */}
-      {isDraft && (
-        <div className="mb-5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
-          <Zap size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <div className="text-sm font-medium text-amber-700">Pre-atendimento - dados incompletos</div>
-            <div className="text-xs text-amber-600 mt-0.5">Complete as informacoes abaixo para converter em atendimento oficial.</div>
-          </div>
-        </div>
-      )}
+      <div className="grid grid-cols-[1fr_280px] gap-5">
+        <div className="space-y-4">
 
-      <div className="grid grid-cols-[1fr_300px] gap-5">
-        <div className="space-y-5">
+          {/* INFORMAÇÕES DO ATENDIMENTO */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Informacoes</span>
+              {!isClosed && !editing && (
+                <button onClick={() => setEditing(true)}
+                  className="flex items-center gap-1.5 text-xs text-[#185FA5] hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors">
+                  <Edit2 size={12} /> Editar
+                </button>
+              )}
+              {editing && (
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditing(false); setSelectedCompany(null); setCompanySearch('') }}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:bg-gray-100 px-2.5 py-1.5 rounded-lg">
+                    <X size={12} /> Cancelar
+                  </button>
+                  <button onClick={handleSaveEdit} disabled={savingEdit}
+                    className="flex items-center gap-1 text-xs bg-[#185FA5] text-white px-2.5 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-60">
+                    <Check size={12} /> {savingEdit ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              )}
+            </div>
 
-          {/* Completar rascunho */}
-          {isDraft && (
-            <div className="card border-amber-200">
-              <div className="card-header border-amber-100 bg-amber-50/50">
-                <span className="card-title text-amber-700"><Edit2 size={14} /> Completar dados</span>
+            {!editing ? (
+              <div className="card-body">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-5">
+                  <div><div className="text-xs text-gray-400 mb-0.5">Empresa</div><div className="text-sm font-medium text-gray-900">{companyDisplay}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Solicitante</div><div className="text-sm font-medium text-gray-900">{ticket.requester_name}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Colaborador</div><div className="text-sm font-medium text-gray-900">{ticket.employee_name ?? '—'}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{typeName}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Departamento</div><div className="text-sm font-medium text-gray-900">{currentDeptLabel}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Atendente</div><div className="text-sm font-medium text-gray-900">{(ticket as any).attendant_name ?? '—'}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? '—'}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Prioridade</div><div className="text-sm font-medium text-gray-900">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</div></div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-2">Descricao inicial</div>
+                  <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 leading-relaxed">{ticket.description}</div>
+                </div>
               </div>
+            ) : (
               <div className="card-body space-y-4">
                 {/* Empresa */}
                 <div className="form-group">
                   <label className="form-label">Empresa</label>
                   <div className="relative">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input className="input pl-9" placeholder="Digite o nome ou CNPJ da empresa..."
-                      value={companySearch}
+                    <input className="input pl-9" placeholder="Digite o nome ou CNPJ..."
+                      value={selectedCompany ? (selectedCompany.trade_name || selectedCompany.legal_name) : companySearch}
                       onChange={e => { setCompanySearch(e.target.value); setShowDropdown(true); setSelectedCompany(null) }}
                       onFocus={() => setShowDropdown(true)} />
                   </div>
-                  {showDropdown && !selectedCompany && companySearch && (
-                    <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto z-10 relative">
-                      {filteredCompanies.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-gray-400">Nenhuma empresa encontrada</div>
-                      ) : filteredCompanies.slice(0, 6).map(c => (
+                  {showDropdown && !selectedCompany && companySearch && filtered.length > 0 && (
+                    <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-40 overflow-y-auto z-10 relative">
+                      {filtered.map((c: any) => (
                         <button key={c.id} type="button"
                           className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                          onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
+                          onClick={() => { setSelectedCompany(c); setShowDropdown(false) }}>
                           <div className="text-sm font-medium text-gray-900">{c.trade_name || c.legal_name}</div>
                           <div className="text-xs text-gray-400 font-mono">{c.cnpj}</div>
                         </button>
                       ))}
                     </div>
                   )}
-                  {selectedCompany && <p className="text-xs text-green-600 mt-1">Selecionado: {selectedCompany.legal_name}</p>}
+                  {!selectedCompany && (
+                    <input className="input mt-2" placeholder="Ou digite o nome manualmente..."
+                      value={editForm.company_name}
+                      onChange={e => setEditForm(f => ({ ...f, company_name: e.target.value }))} />
+                  )}
+                  {selectedCompany && <p className="text-xs text-green-600 mt-1">✓ {selectedCompany.legal_name}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="form-group">
-                    <label className="form-label">Solicitante (RH)</label>
-                    <input className="input" value={editRequester} onChange={e => setEditRequester(e.target.value)} placeholder="Nome do RH" />
+                    <label className="form-label">Solicitante</label>
+                    <input className="input" value={editForm.requester_name} onChange={e => setEditForm(f => ({ ...f, requester_name: e.target.value }))} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Colaborador</label>
-                    <input className="input" value={editEmployee} onChange={e => setEditEmployee(e.target.value)} placeholder="Nome do funcionario" />
+                    <input className="input" value={editForm.employee_name} onChange={e => setEditForm(f => ({ ...f, employee_name: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Tipo de solicitacao</label>
+                    <input className="input" value={editForm.type_name} onChange={e => setEditForm(f => ({ ...f, type_name: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Atendente</label>
+                    <select className="select" value={editForm.attendant_id} onChange={e => setEditForm(f => ({ ...f, attendant_id: e.target.value }))}>
+                      <option value="">Selecione...</option>
+                      {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+                    </select>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Departamento</label>
-                    <select className="select" value={editDept} onChange={e => setEditDept(e.target.value)}>
+                    <select className="select" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))}>
                       {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Prioridade</label>
-                    <select className="select" value={editPriority} onChange={e => setEditPriority(e.target.value)}>
-                      <option value="baixa">Baixa</option>
-                      <option value="media">Media</option>
+                    <select className="select" value={editForm.priority} onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}>
                       <option value="alta">Alta</option>
+                      <option value="media">Media</option>
+                      <option value="baixa">Baixa</option>
                     </select>
                   </div>
                 </div>
-
-                <button onClick={completeRascunho} disabled={completing} className="btn-primary w-full justify-center">
-                  <CheckCircle2 size={15} />
-                  {completing ? 'Convertendo...' : 'Converter em atendimento oficial'}
-                </button>
               </div>
-            </div>
-          )}
-
-          {/* Informacoes */}
-          <div className="card">
-            <div className="card-header"><span className="card-title">Informacoes</span></div>
-            <div className="card-body">
-              <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-5">
-                <div><div className="text-xs text-gray-400 mb-0.5">Empresa</div><div className="text-sm font-medium text-gray-900">{ticket.company_legal_name ?? (ticket as any).company_name_free ?? 'Não informada'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Solicitante</div><div className="text-sm font-medium text-gray-900">{ticket.requester_name}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Colaborador</div><div className="text-sm font-medium text-gray-900">{ticket.employee_name ?? '—'}</div></div>
-               <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{(ticket as any).type_name ?? TYPE_LABELS[ticket.type] ?? ticket.type}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Departamento</div><div className="text-sm font-medium text-gray-900">{currentDeptLabel}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? '—'}</div></div>
-                <div><div className="text-xs text-gray-400 mb-0.5">Atendente</div><div className="text-sm font-medium text-gray-900">{(ticket as any).attendant_name ?? '—'}</div></div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 mb-2">Descricao</div>
-                <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 leading-relaxed">{ticket.description}</div>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Timeline */}
+          {/* TIMELINE */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Timeline</span>
-              <span className="text-xs text-gray-400">{history.length} eventos</span>
+              <span className="text-xs text-gray-400">{history.length} registros</span>
             </div>
             <div className="card-body">
-              {history.length > 0 ? (
-                <ol className="relative pl-6 border-l border-gray-100 space-y-5 mb-6">
+              {history.length === 0 ? (
+                <div className="text-xs text-gray-400 text-center py-6">Nenhum registro ainda. Use o campo abaixo para registrar a primeira acao.</div>
+              ) : (
+                <ol className="relative pl-6 border-l border-gray-100 space-y-5 mb-2">
                   {history.map((item, idx) => {
-                    const dot = item.to_status ? (TL_COLORS[item.to_status] ?? 'bg-gray-300') : (idx === 0 ? 'bg-blue-500' : 'bg-gray-300')
+                    const dot = item.to_status ? (TL_COLORS[item.to_status] ?? 'bg-gray-300') : 'bg-gray-300'
                     const userName = (item.user as any)?.full_name ?? 'Sistema'
+                    const elapsed = (item as any).elapsed_seconds
                     return (
                       <li key={item.id} className="relative">
                         <span className={cn('absolute -left-[25px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-white', dot)} />
                         <div className="text-sm font-medium text-gray-900">{item.action}</div>
-                        {item.observation && item.observation !== item.action && (
-                          <div className="text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg mt-1">{item.observation}</div>
+                        {elapsed && elapsed > 0 && (
+                          <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+                            <Clock size={10} />
+                            <span>Tempo nesta etapa: {formatDuration(elapsed)}</span>
+                          </div>
                         )}
                         <div className="flex gap-3 mt-1 text-xs text-gray-400">
                           <span className="font-medium">{userName}</span>
@@ -377,111 +397,143 @@ export default function TicketDetailPage() {
                     )
                   })}
                 </ol>
-              ) : (
-                <div className="text-xs text-gray-400 text-center py-6 mb-4">Nenhum evento registrado ainda</div>
               )}
-              <div className="border-t border-gray-100 pt-4">
-                <div className="text-xs font-medium text-gray-600 mb-2">Adicionar observacao</div>
-                <PasteTextarea value={obsText} onChange={setObsText}
-                  placeholder="Descreva uma atualizacao — use Ctrl+V para colar prints..." rows={2} />
-                <div className="flex justify-end mt-2">
-                  <button onClick={handleObs} disabled={!obsText.trim() || savingObs} className="btn-primary btn-sm">
-                    <Send size={13} /> {savingObs ? 'Registrando...' : 'Registrar'}
-                  </button>
-                </div>
+            </div>
+          </div>
+
+          {/* REGISTRO DE AÇÃO */}
+          {!isClosed && (
+            <div className="card border-blue-100">
+              <div className="card-header border-blue-50 bg-blue-50/40">
+                <span className="card-title text-blue-800">Registrar atualização</span>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-4">
-          <div className="card">
-            <div className="card-header"><span className="card-title">Acoes</span></div>
-            <div className="card-body space-y-3">
-              {isDraft ? (
-                <div className="text-xs text-amber-600 text-center py-2 bg-amber-50 rounded-lg border border-amber-100">
-                  Complete os dados ao lado para liberar as acoes
-                </div>
-              ) : isClosed ? (
-                <p className="text-xs text-gray-400 text-center py-2">Atendimento encerrado</p>
-              ) : (
-                <>
-                  {nextActions.map(action => (
-                    <button key={action.value}
-                      onClick={() => setActionStatus(prev => prev === action.value ? '' : action.value)}
-                      className={cn('w-full justify-center text-sm', actionStatus === action.value ? 'btn-primary' : 'btn')}>
-                      {action.value === 'finalizado' && <CheckCircle2 size={14} />}
-                      {action.value === 'encaminhado' && <ArrowRight size={14} />}
-                      {action.label}
-                    </button>
-                  ))}
-                  {actionStatus === 'encaminhado' && (
-                    <div className="space-y-2 p-3 bg-purple-50 rounded-xl border border-purple-100">
-                      <div className="text-xs font-medium text-purple-700">Encaminhar para qual departamento?</div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {DEPARTMENTS.map(d => (
-                          <button key={d.value} type="button" onClick={() => setActionDept(d.value)}
-                            className={cn('text-xs px-2 py-1.5 rounded-lg border transition-colors text-left',
-                              actionDept === d.value ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300')}>
-                            {d.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {actionStatus && (
-                    <PasteTextarea value={actionObs} onChange={setActionObs}
-                      placeholder="Observacao sobre esta acao (opcional)..." rows={2} />
-                  )}
-                  {actionStatus && (
-                    <button onClick={handleAction} disabled={saving} className="btn-primary w-full justify-center">
-                      <CheckCircle2 size={14} /> {saving ? 'Salvando...' : 'Confirmar acao'}
-                    </button>
-                  )}
-                  <div className="border-t border-gray-100 pt-2">
-                    <button onClick={cancelTicket} className="btn-danger w-full justify-center">
-                      <XCircle size={14} /> Cancelar atendimento
-                    </button>
+              <div className="card-body space-y-4">
+                <PasteTextarea
+                  value={obsText}
+                  onChange={setObsText}
+                  placeholder="Descreva o que foi feito, resultado da ligação, retorno do cliente... Use Ctrl+V para colar prints."
+                  rows={3}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="form-group">
+                    <label className="form-label">Departamento responsável agora</label>
+                    <select className="select" value={actionDept} onChange={e => setActionDept(e.target.value)}>
+                      {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                    </select>
                   </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* SLA */}
-          {!isDraft && (
-            <div className="card">
-              <div className="card-header"><span className="card-title"><Clock size={14} /> SLA</span></div>
-              <div className="card-body space-y-3">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-400">Prazo</span>
-                  <span className="font-medium text-gray-700">{formatDate(ticket.sla_deadline)}</span>
+                  <div className="form-group">
+                    <label className="form-label">Status atual do atendimento *</label>
+                    <select className="select" value={actionStatus} onChange={e => setActionStatus(e.target.value)}>
+                      <option value="">Selecione o status...</option>
+                      {ACTION_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={cn('h-full rounded-full', sla >= 90 ? 'bg-red-500' : sla >= 70 ? 'bg-amber-400' : 'bg-[#185FA5]')} style={{ width: sla + '%' }} />
-                </div>
-                <div className="text-xs text-gray-400 text-right">{sla}% do tempo</div>
-                <div className="border-t border-gray-100 pt-3 space-y-2">
-                  <div className="flex justify-between text-xs"><span className="text-gray-400">Abertura</span><span className="font-medium text-gray-700">{formatDate(ticket.created_at)}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-gray-400">1a resposta</span><span className="font-medium text-gray-700">{ticket.first_response_at ? formatDate(ticket.first_response_at) : 'Pendente'}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-gray-400">Tempo aberto</span><span className="font-medium text-gray-700">{formatDuration(ticket.open_seconds)}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-gray-400">Fechamento</span><span className="font-medium text-gray-700">{ticket.closed_at ? formatDate(ticket.closed_at) : '—'}</span></div>
+                {actionStatus === 'finalizado' && (
+                  <div className="px-3 py-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 flex items-center gap-2">
+                    <CheckCircle2 size={13} />
+                    Este registro irá <strong>concluir e fechar</strong> o atendimento automaticamente.
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button onClick={handleRegistrar} disabled={saving || !obsText.trim() || !actionStatus}
+                    className="btn-primary min-w-[140px] justify-center disabled:opacity-50">
+                    <Send size={13} />
+                    {saving ? 'Registrando...' : actionStatus === 'finalizado' ? 'Concluir atendimento' : 'Registrar'}
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
+          {isClosed && (
+            <div className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2 ${ticket.status === 'finalizado' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
+              {ticket.status === 'finalizado' ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
+              Atendimento {ticket.status === 'finalizado' ? 'concluído' : 'cancelado'}.
+            </div>
+          )}
+        </div>
+
+        {/* SIDEBAR DIREITA */}
+        <div className="space-y-4">
+
+          {/* SLA */}
+          <div className="card">
+            <div className="card-header"><span className="card-title"><Clock size={14} /> SLA & Tempo</span></div>
+            <div className="card-body space-y-3">
+              {(ticket as any).sla_deadline && (
+                <>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">Prazo</span>
+                    <span className="font-medium text-gray-700">{formatDate((ticket as any).sla_deadline)}</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className={cn('h-full rounded-full', sla >= 90 ? 'bg-red-500' : sla >= 70 ? 'bg-amber-400' : 'bg-[#185FA5]')}
+                      style={{ width: sla + '%' }} />
+                  </div>
+                  <div className="text-xs text-gray-400 text-right">{sla}% do tempo</div>
+                </>
+              )}
+              <div className="border-t border-gray-100 pt-3 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Abertura</span>
+                  <span className="font-medium text-gray-700">{formatDate(ticket.created_at)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">1ª resposta</span>
+                  <span className="font-medium text-gray-700">{(ticket as any).first_response_at ? formatDate((ticket as any).first_response_at) : 'Pendente'}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Tempo total</span>
+                  <span className={cn('font-semibold', isClosed ? 'text-green-600' : 'text-[#185FA5]')}>
+                    {formatDuration((ticket as any).open_seconds ?? 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Fechamento</span>
+                  <span className="font-medium text-gray-700">{(ticket as any).closed_at ? formatDate((ticket as any).closed_at) : '—'}</span>
+                </div>
+              </div>
+
+              {/* Tempo por etapa */}
+              {history.filter(h => (h as any).elapsed_seconds > 0).length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <div className="text-xs font-semibold text-gray-500 mb-2">Tempo por etapa</div>
+                  {history.filter(h => (h as any).elapsed_seconds > 0).map((h, i) => (
+                    <div key={i} className="flex justify-between text-xs py-1 border-b border-gray-50 last:border-0">
+                      <span className="text-gray-500 truncate flex-1 mr-2">{STATUS_TRANS[h.to_status ?? ''] ?? h.to_status ?? 'Inicio'}</span>
+                      <span className="font-medium text-gray-700 flex-shrink-0">{formatDuration((h as any).elapsed_seconds)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Empresa */}
           <div className="card">
             <div className="card-header">
               <span className="card-title"><Building2 size={14} /> Empresa</span>
-              {!isDraft && ticket.company_id && <Link href={'/empresas/' + ticket.company_id} className="btn btn-sm text-xs">Ver</Link>}
+              {!isDraft && ticket.company_id && (
+                <Link href={'/empresas/' + ticket.company_id} className="btn btn-sm text-xs">Ver →</Link>
+              )}
             </div>
             <div className="card-body space-y-2">
-              <div className="flex justify-between text-xs"><span className="text-gray-400">Razao social</span><span className="font-medium text-gray-700 text-right max-w-[150px] truncate">{ticket.company_legal_name}</span></div>
-              <div className="flex justify-between text-xs"><span className="text-gray-400">Cidade</span><span className="font-medium text-gray-700">{ticket.company_city && ticket.company_state ? ticket.company_city + '/' + ticket.company_state : '—'}</span></div>
-              <div className="flex justify-between text-xs"><span className="text-gray-400">Parceiro</span><span className="font-medium text-gray-700">{ticket.partner_name ?? '—'}</span></div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Nome</span>
+                <span className="font-medium text-gray-700 text-right max-w-[150px] truncate">{companyDisplay}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Cidade</span>
+                <span className="font-medium text-gray-700">
+                  {(ticket as any).company_city && (ticket as any).company_state
+                    ? (ticket as any).company_city + '/' + (ticket as any).company_state : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">Parceiro</span>
+                <span className="font-medium text-gray-700">{ticket.partner_name ?? '—'}</span>
+              </div>
             </div>
           </div>
         </div>
