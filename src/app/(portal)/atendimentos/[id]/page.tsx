@@ -111,18 +111,26 @@ export default function TicketDetailPage() {
   useEffect(() => { fetchData() }, [id])
 
   useEffect(() => {
-    supabase.from('companies').select('id, legal_name, trade_name, cnpj')
-      .eq('status', 'ativa').order('legal_name')
-      .then(({ data }) => { setCompanies((data as Company[]) ?? []); setFilteredCompanies((data as Company[]) ?? []) })
+    Promise.all([
+      supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
+      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
+    ]).then(([{ data: comp }, { data: conv }]) => {
+      const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
+      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
+      const all = [...fromCompanies, ...fromConveniadas]
+      setCompanies(all as any)
+      setFilteredCompanies(all as any)
+    })
   }, [])
 
   useEffect(() => {
-    if (!companySearch) { setFilteredCompanies(companies); return }
+    if (!companySearch || companySearch.length < 2) { setFilteredCompanies([]); return }
     const q = companySearch.toLowerCase()
-    setFilteredCompanies(companies.filter(c =>
-      c.legal_name.toLowerCase().includes(q) ||
+    const digits = companySearch.replace(/\D/g, '')
+    setFilteredCompanies(companies.filter((c: any) =>
+      (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
-      c.cnpj.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+      (digits.length >= 3 && (c.cnpj ?? '').includes(digits))
     ))
   }, [companySearch, companies])
 
