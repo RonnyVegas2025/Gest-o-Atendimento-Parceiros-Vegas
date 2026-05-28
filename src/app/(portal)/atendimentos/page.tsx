@@ -5,7 +5,7 @@ import { PriorityBadge } from '@/components/tickets/StatusBadge'
 import { formatDateShort } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/lib/constants'
 import Link from 'next/link'
-import { Plus, Zap, AlertTriangle, Clock } from 'lucide-react'
+import { Plus, Zap, AlertTriangle, Clock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { TicketWithDetails } from '@/lib/types'
 
@@ -31,16 +31,15 @@ const STATUS_LABEL: Record<string, string> = {
   cancelado:          'Cancelado',
 }
 
-// Calcula urgência baseada no SLA (0=sem sla, 1=normal, 2=atenção, 3=crítico, 4=vencido)
 function getSlaUrgency(ticket: any): number {
   if (!ticket.sla_deadline) return 0
   if (ticket.sla_breached) return 4
   const total = new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()
   const remaining = new Date(ticket.sla_deadline).getTime() - Date.now()
   const pct = remaining / total
-  if (pct <= 0.1) return 3   // crítico — menos de 10% restante
-  if (pct <= 0.3) return 2   // atenção — menos de 30% restante
-  return 1                    // normal
+  if (pct <= 0.1) return 3
+  if (pct <= 0.3) return 2
+  return 1
 }
 
 function formatRemaining(ticket: any): { text: string; cls: string } | null {
@@ -56,11 +55,11 @@ function formatRemaining(ticket: any): { text: string; cls: string } | null {
 
 function SlaBar({ ticket }: { ticket: any }) {
   if (!ticket.sla_deadline) return <span className="text-xs text-gray-300">—</span>
-  const total     = new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()
-  const elapsed   = Date.now() - new Date(ticket.created_at).getTime()
-  const pct       = Math.min(100, Math.round((elapsed / total) * 100))
-  const color     = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-blue-400'
-  const rem       = formatRemaining(ticket)
+  const total   = new Date(ticket.sla_deadline).getTime() - new Date(ticket.created_at).getTime()
+  const elapsed = Date.now() - new Date(ticket.created_at).getTime()
+  const pct     = Math.min(100, Math.round((elapsed / total) * 100))
+  const color   = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-blue-400'
+  const rem     = formatRemaining(ticket)
   return (
     <div className="flex flex-col gap-1 min-w-0">
       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
@@ -71,15 +70,28 @@ function SlaBar({ ticket }: { ticket: any }) {
   )
 }
 
+// ✅ Badge de empresa sem cadastro
+function SemCadastroBadge() {
+  return (
+    <span
+      title="Empresa digitada livremente — sem cadastro formal. Clique em Empresas para cadastrar."
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 cursor-help"
+    >
+      <Building2 size={9} />
+      Sem cadastro
+    </span>
+  )
+}
+
 export default function AtendimentosPage() {
   const supabase = createClient()
-  const [tickets, setTickets]     = useState<any[]>([])
+  const [tickets, setTickets]       = useState<any[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [search, setSearch]       = useState('')
-  const [status, setStatus]       = useState('')
+  const [loading, setLoading]       = useState(true)
+  const [search, setSearch]         = useState('')
+  const [status, setStatus]         = useState('')
   const [department, setDepartment] = useState('')
-  const [attendant, setAttendant] = useState('')
+  const [attendant, setAttendant]   = useState('')
 
   useEffect(() => {
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
@@ -109,17 +121,14 @@ export default function AtendimentosPage() {
     load()
   }, [status, department, search, attendant])
 
-  // Separa rascunhos, ativos e concluídos
-  const drafts    = tickets.filter(t => t.status === 'rascunho')
-  const active    = tickets.filter(t => !['rascunho','finalizado','cancelado'].includes(t.status))
-  const closed    = tickets.filter(t => ['finalizado','cancelado'].includes(t.status))
+  const drafts = tickets.filter(t => t.status === 'rascunho')
+  const active = tickets.filter(t => !['rascunho','finalizado','cancelado'].includes(t.status))
+  const closed = tickets.filter(t => ['finalizado','cancelado'].includes(t.status))
 
-  // Ordena ativos por urgência SLA (mais urgente primeiro)
   const activeSorted = useMemo(() => [...active].sort((a, b) => {
     const ua = getSlaUrgency(a)
     const ub = getSlaUrgency(b)
-    if (ua !== ub) return ub - ua  // maior urgência primeiro
-    // mesma urgência → menor tempo restante primeiro
+    if (ua !== ub) return ub - ua
     if (a.sla_deadline && b.sla_deadline) {
       return new Date(a.sla_deadline).getTime() - new Date(b.sla_deadline).getTime()
     }
@@ -134,10 +143,26 @@ export default function AtendimentosPage() {
     return ''
   }
 
-  const getCompanyName = (t: any) => t.company_name_free ?? t.company_legal_name ?? 'Empresa nao informada'
-  const getTypeName    = (t: any) => t.type_name ?? t.type ?? '—'
+  // ✅ Mostra nome + badge se empresa sem cadastro
+  function CompanyCell({ ticket }: { ticket: any }) {
+    const semCadastro = !ticket.company_id && !!ticket.company_name_free
+    const nome = ticket.company_name_free ?? ticket.company_legal_name ?? 'Empresa nao informada'
+    return (
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-medium text-gray-900 truncate">{nome}</span>
+          {semCadastro && <SemCadastroBadge />}
+        </div>
+        <div className="text-xs text-gray-400 truncate">{ticket.type_name ?? ticket.type ?? '—'}</div>
+      </div>
+    )
+  }
 
+  const getTypeName = (t: any) => t.type_name ?? t.type ?? '—'
   const COLS = '130px 1fr 140px 110px 110px 100px 130px 90px'
+
+  // ✅ Conta quantos tickets têm empresa sem cadastro (para alerta no topo)
+  const semCadastroCount = tickets.filter(t => !t.company_id && !!t.company_name_free).length
 
   return (
     <div className="p-6 space-y-4">
@@ -151,6 +176,19 @@ export default function AtendimentosPage() {
         </Link>
       </div>
 
+      {/* ✅ Alerta de empresas sem cadastro */}
+      {semCadastroCount > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+          <Building2 size={15} className="flex-shrink-0 text-amber-500" />
+          <span>
+            <strong>{semCadastroCount} atendimento{semCadastroCount > 1 ? 's' : ''}</strong> com empresa sem cadastro formal.{' '}
+            <Link href="/empresas" className="underline font-semibold hover:text-amber-900">
+              Ir para Empresas para cadastrar →
+            </Link>
+          </span>
+        </div>
+      )}
+
       {/* Rascunhos */}
       {drafts.length > 0 && (
         <div className="card border-amber-200 bg-amber-50/50">
@@ -161,21 +199,28 @@ export default function AtendimentosPage() {
             </span>
             <span className="text-xs text-amber-600">Clique para completar os dados</span>
           </div>
-          {drafts.map(ticket => (
-            <Link key={ticket.id} href={`/atendimentos/${ticket.id}`}
-              className="table-row grid hover:bg-amber-50"
-              style={{ gridTemplateColumns: '130px 1fr 110px 90px 130px 90px' }}>
-              <span className="font-mono text-xs text-gray-400">{ticket.protocol}</span>
-              <div>
-                <div className="text-sm font-medium text-gray-900 truncate">{getCompanyName(ticket)}</div>
-                <div className="text-xs text-gray-400">{ticket.requester_name}</div>
-              </div>
-              <span className="text-xs text-gray-500">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
-              <PriorityBadge priority={ticket.priority} />
-              <span className={cn('badge', STATUS_BADGE['rascunho'])}>Rascunho</span>
-              <span className="text-xs text-gray-400">{formatDateShort(ticket.created_at)}</span>
-            </Link>
-          ))}
+          {drafts.map(ticket => {
+            const semCadastro = !ticket.company_id && !!ticket.company_name_free
+            const nome = ticket.company_name_free ?? ticket.company_legal_name ?? 'Empresa nao informada'
+            return (
+              <Link key={ticket.id} href={`/atendimentos/${ticket.id}`}
+                className="table-row grid hover:bg-amber-50"
+                style={{ gridTemplateColumns: '130px 1fr 110px 90px 130px 90px' }}>
+                <span className="font-mono text-xs text-gray-400">{ticket.protocol}</span>
+                <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-medium text-gray-900 truncate">{nome}</span>
+                    {semCadastro && <SemCadastroBadge />}
+                  </div>
+                  <div className="text-xs text-gray-400">{ticket.requester_name}</div>
+                </div>
+                <span className="text-xs text-gray-500">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
+                <PriorityBadge priority={ticket.priority} />
+                <span className={cn('badge', STATUS_BADGE['rascunho'])}>Rascunho</span>
+                <span className="text-xs text-gray-400">{formatDateShort(ticket.created_at)}</span>
+              </Link>
+            )
+          })}
         </div>
       )}
 
@@ -243,10 +288,7 @@ export default function AtendimentosPage() {
               {ticket.sla_breached && <AlertTriangle size={11} className="text-red-500 flex-shrink-0" />}
               <span className="font-mono text-xs text-gray-400">{ticket.protocol}</span>
             </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">{getCompanyName(ticket)}</div>
-              <div className="text-xs text-gray-400 truncate">{getTypeName(ticket)}</div>
-            </div>
+            <CompanyCell ticket={ticket} />
             <span className="text-xs text-gray-600 truncate self-center">{ticket.attendant_name ?? '—'}</span>
             <span className="text-xs text-gray-500 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
             <div className="self-center w-full pr-2">
@@ -272,33 +314,40 @@ export default function AtendimentosPage() {
             <span>Departamento</span><span>Tempo total</span><span>Prioridade</span>
             <span>Status</span><span>Encerrado</span>
           </div>
-          {closed.map(ticket => (
-            <Link key={ticket.id} href={`/atendimentos/${ticket.id}`}
-              className="table-row grid hover:bg-gray-50/50"
-              style={{ gridTemplateColumns: COLS }}>
-              <span className="font-mono text-xs text-gray-300">{ticket.protocol}</span>
-              <div className="min-w-0">
-                <div className="text-sm text-gray-400 truncate">{getCompanyName(ticket)}</div>
-                <div className="text-xs text-gray-300 truncate">{getTypeName(ticket)}</div>
-              </div>
-              <span className="text-xs text-gray-400 self-center">{ticket.attendant_name ?? '—'}</span>
-              <span className="text-xs text-gray-400 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
-              <span className="text-xs text-gray-400 self-center">
-                {ticket.open_seconds > 0
-                  ? ticket.open_seconds >= 3600
-                    ? `${Math.floor(ticket.open_seconds/3600)}h ${Math.floor((ticket.open_seconds%3600)/60)}min`
-                    : `${Math.floor(ticket.open_seconds/60)}min`
-                  : '—'}
-              </span>
-              <div className="self-center"><PriorityBadge priority={ticket.priority} /></div>
-              <span className={cn('badge self-center', STATUS_BADGE[ticket.status] ?? 'bg-gray-100 text-gray-600')}>
-                {STATUS_LABEL[ticket.status] ?? ticket.status}
-              </span>
-              <span className="text-xs text-gray-300 self-center">
-                {ticket.closed_at ? formatDateShort(ticket.closed_at) : formatDateShort(ticket.created_at)}
-              </span>
-            </Link>
-          ))}
+          {closed.map(ticket => {
+            const semCadastro = !ticket.company_id && !!ticket.company_name_free
+            const nome = ticket.company_name_free ?? ticket.company_legal_name ?? 'Empresa nao informada'
+            return (
+              <Link key={ticket.id} href={`/atendimentos/${ticket.id}`}
+                className="table-row grid hover:bg-gray-50/50"
+                style={{ gridTemplateColumns: COLS }}>
+                <span className="font-mono text-xs text-gray-300">{ticket.protocol}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm text-gray-400 truncate">{nome}</span>
+                    {semCadastro && <SemCadastroBadge />}
+                  </div>
+                  <div className="text-xs text-gray-300 truncate">{getTypeName(ticket)}</div>
+                </div>
+                <span className="text-xs text-gray-400 self-center">{ticket.attendant_name ?? '—'}</span>
+                <span className="text-xs text-gray-400 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
+                <span className="text-xs text-gray-400 self-center">
+                  {ticket.open_seconds > 0
+                    ? ticket.open_seconds >= 3600
+                      ? `${Math.floor(ticket.open_seconds/3600)}h ${Math.floor((ticket.open_seconds%3600)/60)}min`
+                      : `${Math.floor(ticket.open_seconds/60)}min`
+                    : '—'}
+                </span>
+                <div className="self-center"><PriorityBadge priority={ticket.priority} /></div>
+                <span className={cn('badge self-center', STATUS_BADGE[ticket.status] ?? 'bg-gray-100 text-gray-600')}>
+                  {STATUS_LABEL[ticket.status] ?? ticket.status}
+                </span>
+                <span className="text-xs text-gray-300 self-center">
+                  {ticket.closed_at ? formatDateShort(ticket.closed_at) : formatDateShort(ticket.created_at)}
+                </span>
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>
