@@ -20,7 +20,7 @@ const PROD_COLORS: Record<string,{bg:string;color:string}> = {
 const EMPTY_FORM = {
   nome_fantasia: '', razao_social: '', cnpj: '', id_grupo: '',
   municipio: '', uf: 'PR', telefone: '', email: '',
-  endereco: '', bairro: '', cep: '', parceiro: 'Nex7 Participações',
+  endereco: '', bairro: '', cep: '', parceiro: '',
   produtos: [] as string[],
   produto_ids: '',
   contato_rh_nome: '', contato_rh_telefone: '', contato_rh_email: '',
@@ -30,33 +30,40 @@ const EMPTY_FORM = {
 export default function EmpresasPage() {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [empresas, setEmpresas]     = useState<any[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [busca, setBusca]           = useState('')
-  const [filtroProd, setFiltroProd] = useState('')
-  const [filtroUF, setFiltroUF]     = useState('')
-  const [total, setTotal]           = useState(0)
-  const [page, setPage]             = useState(0)
+  const [empresas, setEmpresas]       = useState<any[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [busca, setBusca]             = useState('')
+  const [filtroProd, setFiltroProd]   = useState('')
+  const [filtroUF, setFiltroUF]       = useState('')
+  const [total, setTotal]             = useState(0)
+  const [page, setPage]               = useState(0)
   const PER_PAGE = 20
 
-  const [showModal, setShowModal]   = useState(false)
-  const [form, setForm]             = useState(EMPTY_FORM)
-  const [saving, setSaving]         = useState(false)
-  const [saveError, setSaveError]   = useState('')
-  const [saveOk, setSaveOk]         = useState(false)
+  const [parceiros, setParceiros]     = useState<{id:string;name:string}[]>([])
+  const [showModal, setShowModal]     = useState(false)
+  const [form, setForm]               = useState(EMPTY_FORM)
+  const [saving, setSaving]           = useState(false)
+  const [saveError, setSaveError]     = useState('')
+  const [saveOk, setSaveOk]           = useState(false)
   const [loadingCnpj, setLoadingCnpj] = useState(false)
-  const [cnpjError, setCnpjError]   = useState('')
+  const [cnpjError, setCnpjError]     = useState('')
 
-  const [showImport, setShowImport] = useState(false)
-  const [csvRows, setCsvRows]       = useState<any[]>([])
-  const [importing, setImporting]   = useState(false)
+  const [showImport, setShowImport]   = useState(false)
+  const [csvRows, setCsvRows]         = useState<any[]>([])
+  const [importing, setImporting]     = useState(false)
   const [importResult, setImportResult] = useState<{ok:number;err:number} | null>(null)
+
+  // Carrega parceiros
+  useEffect(() => {
+    supabase.from('partners').select('id, name').order('name')
+      .then(({ data }) => setParceiros((data as any[]) ?? []))
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     let query = supabase
       .from('empresas_conveniadas')
-      .select('id, cnpj, nome_fantasia, razao_social, uf, municipio, id_grupo, dados_enriquecidos, empresas_produtos(produto_nome)', { count: 'exact' })
+      .select('id, cnpj, nome_fantasia, razao_social, uf, municipio, id_grupo, dados_enriquecidos, parceiro, empresas_produtos(produto_nome)', { count: 'exact' })
       .eq('ativo', true)
       .order('nome_fantasia')
       .range(page * PER_PAGE, (page + 1) * PER_PAGE - 1)
@@ -119,38 +126,37 @@ export default function EmpresasPage() {
     setSaving(true); setSaveError('')
     const cnpjLimpo = form.cnpj.replace(/\D/g,'') || null
     const { data, error } = await supabase.from('empresas_conveniadas').insert({
-      nome_fantasia:      form.nome_fantasia.trim(),
-      razao_social:       form.razao_social.trim() || null,
-      cnpj:               cnpjLimpo,
-      id_grupo:           form.id_grupo ? parseInt(form.id_grupo) : null,
-      municipio:          form.municipio.trim() || null,
-      uf:                 form.uf || null,
-      telefone:           form.telefone.trim() || null,
-      email:              form.email.trim() || null,
-      endereco:           form.endereco.trim() || null,
-      bairro:             form.bairro.trim() || null,
-      cep:                form.cep.trim() || null,
-      parceiro:           form.parceiro.trim() || null,
-      contato_rh_nome:    form.contato_rh_nome.trim() || null,
-      contato_rh_telefone:form.contato_rh_telefone.trim() || null,
-      contato_rh_email:   form.contato_rh_email.trim() || null,
-      contato_fin_nome:   form.contato_fin_nome.trim() || null,
+      nome_fantasia:       form.nome_fantasia.trim(),
+      razao_social:        form.razao_social.trim() || null,
+      cnpj:                cnpjLimpo,
+      id_grupo:            form.id_grupo ? parseInt(form.id_grupo) : null,
+      municipio:           form.municipio.trim() || null,
+      uf:                  form.uf || null,
+      telefone:            form.telefone.trim() || null,
+      email:               form.email.trim() || null,
+      endereco:            form.endereco.trim() || null,
+      bairro:              form.bairro.trim() || null,
+      cep:                 form.cep.trim() || null,
+      parceiro:            form.parceiro.trim() || null,
+      contato_rh_nome:     form.contato_rh_nome.trim() || null,
+      contato_rh_telefone: form.contato_rh_telefone.trim() || null,
+      contato_rh_email:    form.contato_rh_email.trim() || null,
+      contato_fin_nome:    form.contato_fin_nome.trim() || null,
       contato_fin_telefone:form.contato_fin_telefone.trim() || null,
-      contato_fin_email:  form.contato_fin_email.trim() || null,
-      ativo:              true,
-      dados_enriquecidos: false,
+      contato_fin_email:   form.contato_fin_email.trim() || null,
+      ativo:               true,
+      dados_enriquecidos:  false,
     }).select('id').single()
 
     if (error) { setSaveError(error.message); setSaving(false); return }
 
-    // Salvar produtos com IDs
     if (form.produtos.length > 0 && data?.id) {
       const prodIds = form.produto_ids.split(',').map(s => s.trim()).filter(Boolean)
       await supabase.from('empresas_produtos').insert(
         form.produtos.map((p, i) => ({
-          empresa_id:  data.id,
+          empresa_id:   data.id,
           produto_nome: p,
-          produto_id:  prodIds[i] ? parseInt(prodIds[i]) : null,
+          produto_id:   prodIds[i] ? parseInt(prodIds[i]) : null,
         }))
       )
     }
@@ -195,7 +201,7 @@ export default function EmpresasPage() {
         uf:            row.uf || row.estado || null,
         telefone:      row.telefone || null,
         email:         row.email || null,
-        parceiro:      row.parceiro || 'Nex7 Participações',
+        parceiro:      row.parceiro || null,
         ativo:         true,
         dados_enriquecidos: false,
       })
@@ -207,21 +213,12 @@ export default function EmpresasPage() {
 
   const totalPages = Math.ceil(total / PER_PAGE)
 
-  function Field({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-      <div className="form-group">
-        <label className="form-label">{label}</label>
-        {children}
-      </div>
-    )
-  }
-
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Empresas Conveniadas</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{total} empresas · Nex7 Participações</p>
+          <p className="text-xs text-gray-400 mt-0.5">{total} empresas</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowImport(true)} className="btn"><Upload size={14} /> Importar CSV</button>
@@ -324,7 +321,7 @@ export default function EmpresasPage() {
             </div>
             <div className="p-6 space-y-5">
 
-              {/* CNPJ com busca */}
+              {/* Identificação */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Identificação</div>
                 <div className="grid grid-cols-2 gap-4">
@@ -361,8 +358,8 @@ export default function EmpresasPage() {
                     <select className="select" value={form.parceiro} onChange={e => setForm(f => ({...f, parceiro: e.target.value}))}>
                       <option value="">Selecione o parceiro...</option>
                       {parceiros.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                  </select>
-                </div>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -395,7 +392,7 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Contato geral */}
+              {/* Contato Geral */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Contato Geral</div>
                 <div className="grid grid-cols-2 gap-4">
@@ -465,8 +462,13 @@ export default function EmpresasPage() {
                     <label className="form-label">IDs dos Produtos (na ordem acima, separados por vírgula)</label>
                     <input className="input font-mono" value={form.produto_ids}
                       onChange={e => setForm(f => ({...f, produto_ids: e.target.value}))}
-                      placeholder={`Ex: ${form.produtos.map((_,i) => 14771 + i).join(', ')}`} />
-                    <p className="text-xs text-gray-400 mt-1">Digite os IDs na mesma ordem dos produtos selecionados acima</p>
+                      placeholder={`Ex: 14771, 14774, 14981`} />
+                    <p className="text-xs text-gray-400 mt-1">
+                      {form.produtos.map((p, i) => {
+                        const ids = form.produto_ids.split(',').map(s => s.trim())
+                        return ids[i] ? `${p}: ID ${ids[i]}` : `${p}: sem ID`
+                      }).join(' · ')}
+                    </p>
                   </div>
                 )}
               </div>
@@ -502,8 +504,8 @@ export default function EmpresasPage() {
               </div>
               <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
               <button onClick={() => fileRef.current?.click()}
-                className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
-                <Upload size={20} className="mx-auto mb-2" />
+                className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-2">
+                <Upload size={20} />
                 Clique para selecionar o arquivo CSV
               </button>
               {csvRows.length > 0 && (
