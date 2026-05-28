@@ -61,6 +61,7 @@ export default function NovoAtendimentoPage() {
     requester_name: '',
     employee_name:  '',
     attendant_id:   '',
+    parceiro_id:    '',
     type_id:        '',
     department:     'comercial',
     priority:       'media',
@@ -79,8 +80,14 @@ export default function NovoAtendimentoPage() {
       setCompanies(all as any)
       setFiltered(all as any)
     })
+
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
+
+    // Carrega parceiros do banco
+    supabase.from('partners').select('id, name').order('name')
+      .then(({ data }) => setParceiros((data as any[]) ?? []))
+
     supabase.from('ticket_types').select('*').eq('active', true).order('name')
       .then(({ data }) => {
         const types = (data as TicketType[]) ?? []
@@ -88,8 +95,8 @@ export default function NovoAtendimentoPage() {
         if (types.length > 0) {
           setForm(f => ({
             ...f,
-            type_id:  types[0].id,
-            priority: types[0].priority,
+            type_id:   types[0].id,
+            priority:  types[0].priority,
             sla_hours: types[0].sla_hours,
           }))
         }
@@ -140,21 +147,26 @@ export default function NovoAtendimentoPage() {
     const selectedType = ticketTypes.find(t => t.id === form.type_id)
     const status = isDraft ? 'rascunho' : 'aberto'
 
+    // Busca nome do parceiro selecionado
+    const parceiroSelecionado = parceiros.find(p => p.id === form.parceiro_id)
+
     const payload: Record<string, unknown> = {
-  company_id:         selectedCompany?.id ?? null,
-  company_name_free:  !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
-  requester_name:     form.requester_name || 'Nao informado',
-  employee_name:      form.employee_name || null,
-  attendant_id:       form.attendant_id || null,
-  type:               'outros',
-  type_name:          selectedType?.name ?? null,
-  description:        form.description,
-  department:         form.department,
-  priority:           form.priority,
-  status,
-  protocol:           '',
-  created_by:         '00000000-0000-0000-0000-000000000001',
-}
+      company_id:         selectedCompany?.id ?? null,
+      company_name_free:  !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
+      requester_name:     form.requester_name || 'Nao informado',
+      employee_name:      form.employee_name || null,
+      attendant_id:       form.attendant_id || null,
+      parceiro_id:        form.parceiro_id || null,
+      parceiro:           parceiroSelecionado?.name ?? null,
+      type:               'outros',
+      type_name:          selectedType?.name ?? null,
+      description:        form.description,
+      department:         form.department,
+      priority:           form.priority,
+      status,
+      protocol:           '',
+      created_by:         '00000000-0000-0000-0000-000000000001',
+    }
 
     const { data, error: err } = await supabase
       .from('tickets').insert(payload).select('id, protocol').single()
@@ -224,8 +236,8 @@ export default function NovoAtendimentoPage() {
                       <div className="px-4 py-3 text-sm text-gray-400">
                         <div className="text-gray-500 mb-1">Nenhuma empresa encontrada</div>
                         {isPre && <div className="text-xs text-amber-600">O nome digitado será salvo como está. Complete o cadastro depois em Empresas.</div>}
-                    </div>
-                  ) : filtered.slice(0, 6).map(c => (
+                      </div>
+                    ) : filtered.slice(0, 6).map(c => (
                       <button key={c.id} type="button"
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
                         onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
@@ -254,6 +266,15 @@ export default function NovoAtendimentoPage() {
                     {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                   </select>
                 </div>
+
+                {/* ✅ CAMPO PARCEIRO — carregado do banco */}
+                <div className="form-group col-span-2">
+                  <label className="form-label">Parceiro{isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
+                  <select className="select" value={form.parceiro_id} onChange={e => set('parceiro_id', e.target.value)}>
+                    <option value="">Selecione o parceiro...</option>
+                    {parceiros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -266,26 +287,26 @@ export default function NovoAtendimentoPage() {
                 {/* Tipo — carrega do banco */}
                 <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
-                 <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
-  <option value="">Selecione o tipo...</option>
-  {(() => {
-    const grouped: Record<string, typeof ticketTypes> = {}
-    ticketTypes.forEach(t => {
-      const cat = (t as any).category || 'Geral'
-      if (!grouped[cat]) grouped[cat] = []
-      grouped[cat].push(t)
-    })
-    return Object.entries(grouped).map(([cat, items]) => (
-      <optgroup key={cat} label={cat}>
-        {items.map(t => (
-          <option key={t.id} value={t.id}>
-            {(t as any).subcategory ? `${(t as any).subcategory} › ` : ''}{t.name}
-          </option>
-        ))}
-      </optgroup>
-    ))
-  })()}
-</select>
+                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
+                    <option value="">Selecione o tipo...</option>
+                    {(() => {
+                      const grouped: Record<string, typeof ticketTypes> = {}
+                      ticketTypes.forEach(t => {
+                        const cat = (t as any).category || 'Geral'
+                        if (!grouped[cat]) grouped[cat] = []
+                        grouped[cat].push(t)
+                      })
+                      return Object.entries(grouped).map(([cat, items]) => (
+                        <optgroup key={cat} label={cat}>
+                          {items.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {(t as any).subcategory ? `${(t as any).subcategory} › ` : ''}{t.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))
+                    })()}
+                  </select>
                   {/* Preview SLA e prioridade automaticos */}
                   {selectedType && (
                     <div className="flex items-center gap-3 mt-2">
@@ -319,7 +340,7 @@ export default function NovoAtendimentoPage() {
                 </div>
               </div>
 
-             <div className="form-group">
+              <div className="form-group">
                 <label className="form-label">Descricao *</label>
                 <PasteTextarea
                   value={form.description}
