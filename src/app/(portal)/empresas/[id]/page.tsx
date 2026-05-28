@@ -18,39 +18,61 @@ function EditableField({ label, value, onSave }: { label: string; value: string 
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
 
-  function save() {
-    onSave(val)
-    setEditing(false)
-  }
+  function save() { onSave(val); setEditing(false) }
 
   return (
     <div>
       <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{label}</div>
       {editing ? (
         <div className="flex items-center gap-1.5">
-          <input
-            className="flex-1 text-sm border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:border-indigo-500"
-            value={val}
-            onChange={e => setVal(e.target.value)}
+          <input className="flex-1 text-sm border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:border-indigo-500"
+            value={val} onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-            autoFocus
-          />
-          <button onClick={save} className="w-7 h-7 flex items-center justify-center rounded-lg bg-green-100 text-green-700 hover:bg-green-200">
-            <Check size={13} />
-          </button>
-          <button onClick={() => setEditing(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200">
-            <X size={13} />
-          </button>
+            autoFocus />
+          <button onClick={save} className="w-7 h-7 flex items-center justify-center rounded-lg bg-green-100 text-green-700 hover:bg-green-200"><Check size={13} /></button>
+          <button onClick={() => setEditing(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200"><X size={13} /></button>
         </div>
       ) : (
         <div className="flex items-center gap-2 group">
           <div className={`text-sm font-semibold ${value ? 'text-gray-800' : 'text-amber-500'}`}>
             {value || 'Não preenchido — clique para editar'}
           </div>
-          <button
-            onClick={() => setEditing(true)}
-            className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-          >
+          <button onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+            <Pencil size={11} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EditableSelect({ label, value, options, onSave }: { label: string; value: string | null; options: {value:string;label:string}[]; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value ?? '')
+
+  function save() { onSave(val); setEditing(false) }
+
+  return (
+    <div>
+      <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{label}</div>
+      {editing ? (
+        <div className="flex items-center gap-1.5">
+          <select className="flex-1 text-sm border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:border-indigo-500"
+            value={val} onChange={e => setVal(e.target.value)} autoFocus>
+            <option value="">Selecione...</option>
+            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <button onClick={save} className="w-7 h-7 flex items-center justify-center rounded-lg bg-green-100 text-green-700 hover:bg-green-200"><Check size={13} /></button>
+          <button onClick={() => setEditing(false)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200"><X size={13} /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 group">
+          <div className={`text-sm font-semibold ${value ? 'text-gray-800' : 'text-amber-500'}`}>
+            {options.find(o => o.value === value)?.label ?? value ?? 'Não preenchido — clique para editar'}
+          </div>
+          <button onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
             <Pencil size={11} />
           </button>
         </div>
@@ -65,27 +87,27 @@ export default function EmpresaDetalhePage() {
   const supabase = createClient()
 
   const [empresa, setEmpresa] = useState<any>(null)
+  const [parceiros, setParceiros] = useState<{id:string;name:string}[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   async function load() {
-    const { data } = await supabase
-      .from('empresas_conveniadas')
-      .select('*, empresas_produtos(*), grupos_economicos(parceiro, nome_grupo)')
-      .eq('id', id as string)
-      .single()
+    const [{ data }, { data: parts }] = await Promise.all([
+      supabase.from('empresas_conveniadas')
+        .select('*, empresas_produtos(*), grupos_economicos(parceiro, nome_grupo)')
+        .eq('id', id as string).single(),
+      supabase.from('partners').select('id, name').order('name'),
+    ])
     setEmpresa(data)
+    setParceiros((parts as any[]) ?? [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [id])
 
   async function saveField(field: string, value: string) {
-    const { error } = await supabase
-      .from('empresas_conveniadas')
-      .update({ [field]: value || null })
-      .eq('id', id as string)
-
+    const { error } = await supabase.from('empresas_conveniadas')
+      .update({ [field]: value || null }).eq('id', id as string)
     if (error) {
       setMsg({ text: 'Erro ao salvar: ' + error.message, ok: false })
     } else {
@@ -95,15 +117,12 @@ export default function EmpresaDetalhePage() {
     }
   }
 
-  if (loading) return (
-    <div className="p-6 text-center text-sm text-gray-400">Carregando...</div>
-  )
-  if (!empresa) return (
-    <div className="p-6 text-center text-sm text-gray-400">Empresa não encontrada.</div>
-  )
+  if (loading) return <div className="p-6 text-center text-sm text-gray-400">Carregando...</div>
+  if (!empresa) return <div className="p-6 text-center text-sm text-gray-400">Empresa não encontrada.</div>
 
   const produtos = empresa.empresas_produtos ?? []
   const cnpjFmt = empresa.cnpj?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+  const parceiroOptions = parceiros.map(p => ({ value: p.name, label: p.name }))
 
   return (
     <div className="p-6 space-y-4">
@@ -115,16 +134,13 @@ export default function EmpresaDetalhePage() {
           </button>
           <div>
             <h1 className="text-lg font-semibold text-gray-900">{empresa.nome_fantasia}</h1>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {empresa.grupos_economicos?.parceiro} · Grupo {empresa.id_grupo}
-            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{empresa.parceiro} · Grupo {empresa.id_grupo}</p>
           </div>
         </div>
         <div>
           {empresa.razao_social
             ? <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">✓ Dados completos</span>
-            : <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">Dados incompletos</span>
-          }
+            : <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">Dados incompletos</span>}
         </div>
       </div>
 
@@ -137,6 +153,7 @@ export default function EmpresaDetalhePage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 space-y-4">
 
+          {/* Dados Cadastrais */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Dados Cadastrais</span>
@@ -156,10 +173,7 @@ export default function EmpresaDetalhePage() {
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
                 <div className="text-sm font-semibold text-gray-800">{empresa.id_grupo}</div>
               </div>
-              <div>
-                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Parceiro</div>
-                <div className="text-sm font-semibold text-gray-800">{empresa.parceiro}</div>
-              </div>
+              <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Município/UF</div>
                 <div className="text-sm font-semibold text-gray-800">{empresa.municipio} · {empresa.uf}</div>
@@ -169,6 +183,7 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
+          {/* Endereço */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Endereço</span>
@@ -185,9 +200,10 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
+          {/* Contato Geral */}
           <div className="card">
             <div className="card-header">
-              <span className="card-title">Contato</span>
+              <span className="card-title">Contato Geral</span>
               <span className="text-xs text-gray-400">Passe o mouse sobre o campo para editar</span>
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
@@ -196,18 +212,44 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
+          {/* Contato RH */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Contato RH</span>
+              <span className="text-xs text-gray-400">Passe o mouse sobre o campo para editar</span>
+            </div>
+            <div className="p-4 grid grid-cols-3 gap-4">
+              <EditableField label="Nome" value={empresa.contato_rh_nome} onSave={v => saveField('contato_rh_nome', v)} />
+              <EditableField label="Telefone" value={empresa.contato_rh_telefone} onSave={v => saveField('contato_rh_telefone', v)} />
+              <EditableField label="E-mail" value={empresa.contato_rh_email} onSave={v => saveField('contato_rh_email', v)} />
+            </div>
+          </div>
+
+          {/* Contato Financeiro */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Contato Financeiro</span>
+              <span className="text-xs text-gray-400">Passe o mouse sobre o campo para editar</span>
+            </div>
+            <div className="p-4 grid grid-cols-3 gap-4">
+              <EditableField label="Nome" value={empresa.contato_fin_nome} onSave={v => saveField('contato_fin_nome', v)} />
+              <EditableField label="Telefone" value={empresa.contato_fin_telefone} onSave={v => saveField('contato_fin_telefone', v)} />
+              <EditableField label="E-mail" value={empresa.contato_fin_email} onSave={v => saveField('contato_fin_email', v)} />
+            </div>
+          </div>
+
         </div>
 
+        {/* Sidebar */}
         <div className="space-y-4">
+          {/* Produtos */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Produtos Contratados</span>
               <span className="text-xs text-gray-400">{produtos.length} produto{produtos.length !== 1 ? 's' : ''}</span>
             </div>
             <div className="divide-y divide-gray-50">
-              {produtos.length === 0 && (
-                <div className="px-4 py-3 text-xs text-center text-gray-400">Nenhum produto.</div>
-              )}
+              {produtos.length === 0 && <div className="px-4 py-3 text-xs text-center text-gray-400">Nenhum produto.</div>}
               {produtos.map((p: any) => {
                 const c = PROD_COLORS[p.produto_nome] ?? { bg:'#F1EFE8', color:'#5F5E5A' }
                 return (
@@ -217,7 +259,7 @@ export default function EmpresaDetalhePage() {
                       <span className="text-sm font-semibold text-gray-800">{p.produto_nome}</span>
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background:c.bg, color:c.color }}>
-                      ID {p.produto_id}
+                      ID {p.produto_id ?? '—'}
                     </span>
                   </div>
                 )
@@ -225,12 +267,13 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
+          {/* Grupo Econômico */}
           <div className="card">
             <div className="card-header"><span className="card-title">Grupo Econômico</span></div>
             <div className="divide-y divide-gray-50">
               {[
-                { label:'ID Grupo', value: empresa.id_grupo, bold:true },
-                { label:'Parceiro', value: empresa.parceiro },
+                { label:'ID Grupo',     value: empresa.id_grupo,    bold: true },
+                { label:'Parceiro',     value: empresa.parceiro },
                 { label:'Cadastrado em', value: empresa.data_cadastro ? new Date(empresa.data_cadastro).toLocaleDateString('pt-BR') : '—' },
               ].map(item => (
                 <div key={item.label} className="flex items-center justify-between px-4 py-2.5">
@@ -240,8 +283,7 @@ export default function EmpresaDetalhePage() {
               ))}
             </div>
             <div className="px-4 pb-3 pt-1">
-              <button
-                onClick={() => router.push(`/empresas?busca=${empresa.id_grupo}`)}
+              <button onClick={() => router.push(`/empresas?busca=${empresa.id_grupo}`)}
                 className="w-full py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 text-xs font-bold hover:bg-indigo-100 transition-colors">
                 Ver todas empresas do grupo →
               </button>
