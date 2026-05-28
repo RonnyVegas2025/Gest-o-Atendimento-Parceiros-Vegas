@@ -57,6 +57,9 @@ export default function NovoAtendimentoPage() {
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // ✅ Estado para capturar URLs das imagens coladas no PasteTextarea
+  const [pasteImageUrls, setPasteImageUrls] = useState<string[]>([])
+
   const [form, setForm] = useState({
     requester_name: '',
     employee_name:  '',
@@ -84,7 +87,6 @@ export default function NovoAtendimentoPage() {
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
 
-    // Carrega parceiros do banco
     supabase.from('partners').select('id, name').order('name')
       .then(({ data }) => setParceiros((data as any[]) ?? []))
 
@@ -146,8 +148,6 @@ export default function NovoAtendimentoPage() {
 
     const selectedType = ticketTypes.find(t => t.id === form.type_id)
     const status = isDraft ? 'rascunho' : 'aberto'
-
-    // Busca nome do parceiro selecionado
     const parceiroSelecionado = parceiros.find(p => p.id === form.parceiro_id)
 
     const payload: Record<string, unknown> = {
@@ -166,12 +166,33 @@ export default function NovoAtendimentoPage() {
       status,
       protocol:           '',
       created_by:         '00000000-0000-0000-0000-000000000001',
+      // ✅ Salva as URLs das imagens coladas na descrição
+      description_images: pasteImageUrls.length > 0 ? pasteImageUrls : null,
     }
 
     const { data, error: err } = await supabase
       .from('tickets').insert(payload).select('id, protocol').single()
 
     if (err) { setError(err.message); setLoading(false); return }
+
+    // ✅ Upload dos arquivos anexados (seção de Anexos)
+    if (files.length > 0 && data?.id) {
+      for (const file of files) {
+        const ext = file.name.split('.').pop() ?? 'bin'
+        const path = `tickets/${data.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+        const { error: upErr } = await supabase.storage.from('atendimentos').upload(path, file)
+        if (!upErr) {
+          const { data: urlData } = supabase.storage.from('atendimentos').getPublicUrl(path)
+          await supabase.from('ticket_attachments').insert({
+            ticket_id: data.id,
+            file_name: file.name,
+            file_url:  urlData.publicUrl,
+            file_size: file.size,
+            file_type: file.type,
+          })
+        }
+      }
+    }
 
     setLoading(false)
     router.push('/atendimentos/' + data.id)
@@ -266,8 +287,6 @@ export default function NovoAtendimentoPage() {
                     {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                   </select>
                 </div>
-
-                {/* ✅ CAMPO PARCEIRO — carregado do banco */}
                 <div className="form-group col-span-2">
                   <label className="form-label">Parceiro{isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
                   <select className="select" value={form.parceiro_id} onChange={e => set('parceiro_id', e.target.value)}>
@@ -284,7 +303,6 @@ export default function NovoAtendimentoPage() {
             <div className="card-header"><span className="card-title">Classificacao</span></div>
             <div className="card-body space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                {/* Tipo — carrega do banco */}
                 <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
                   <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
@@ -307,7 +325,6 @@ export default function NovoAtendimentoPage() {
                       ))
                     })()}
                   </select>
-                  {/* Preview SLA e prioridade automaticos */}
                   {selectedType && (
                     <div className="flex items-center gap-3 mt-2">
                       <span className={cn('badge', PRIORITY_COLORS[selectedType.priority])}>
@@ -329,7 +346,6 @@ export default function NovoAtendimentoPage() {
                   </select>
                 </div>
 
-                {/* Prioridade — preenchida automaticamente mas editavel */}
                 <div className="form-group">
                   <label className="form-label">Prioridade <span className="text-gray-400 font-normal">(ajustar se necessario)</span></label>
                   <select className="select" value={form.priority} onChange={e => set('priority', e.target.value)}>
@@ -342,14 +358,18 @@ export default function NovoAtendimentoPage() {
 
               <div className="form-group">
                 <label className="form-label">Descricao *</label>
+                {/* ✅ onImagesChange agora captura as URLs corretamente */}
                 <PasteTextarea
                   value={form.description}
                   onChange={v => set('description', v)}
-                  onImagesChange={() => {}}
+                  onImagesChange={urls => setPasteImageUrls(urls)}
                   placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints..."
                   rows={4}
                   required
                 />
+                {pasteImageUrls.length > 0 && (
+                  <p className="text-xs text-green-600 mt-1">✓ {pasteImageUrls.length} imagem(ns) prontas para salvar</p>
+                )}
               </div>
             </div>
           </div>
