@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid
 } from 'recharts'
-import { Download, Search } from 'lucide-react'
+import { Download, Search, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 
 const DEPT_LABELS: Record<string, string> = {
   comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
@@ -23,13 +24,13 @@ const COLORS = ['#185FA5','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC
 const TABS = ['Visao Geral', 'Empresas', 'Tipos de Solicitacao', 'Departamentos', 'Detalhado']
 
 const PERIOD_OPTIONS = [
-  { value: '7',           label: 'Ultimos 7 dias' },
-  { value: '15',          label: 'Ultimos 15 dias' },
-  { value: '30',          label: 'Ultimos 30 dias' },
-  { value: '90',          label: 'Ultimos 90 dias' },
-  { value: '365',         label: 'Ultimo ano' },
-  { value: 'month_picker',label: 'Escolher mes/ano...' },
-  { value: 'custom',      label: 'Periodo personalizado' },
+  { value: '7',            label: 'Ultimos 7 dias' },
+  { value: '15',           label: 'Ultimos 15 dias' },
+  { value: '30',           label: 'Ultimos 30 dias' },
+  { value: '90',           label: 'Ultimos 90 dias' },
+  { value: '365',          label: 'Ultimo ano' },
+  { value: 'month_picker', label: 'Escolher mes/ano...' },
+  { value: 'custom',       label: 'Periodo personalizado' },
 ]
 
 const MONTHS = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -42,6 +43,14 @@ interface Ticket {
   created_at: string; closed_at: string | null; sla_breached: boolean
   attendant_name: string | null; requester_name: string; employee_name: string | null
   description: string
+}
+
+function makeCSV(rows: (string | number | null | undefined)[][], filename: string) {
+  const csv = rows.map(r => r.map(c => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(';')).join('\r\n')
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = filename
+  a.click(); URL.revokeObjectURL(url)
 }
 
 export default function RelatoriosPage() {
@@ -78,8 +87,7 @@ export default function RelatoriosPage() {
 
       const { data } = await supabase
         .from('tickets_with_details').select('*')
-        .gte('created_at', since)
-        .lte('created_at', until)
+        .gte('created_at', since).lte('created_at', until)
         .order('created_at', { ascending: false })
       setTickets((data as Ticket[]) ?? [])
       setLoading(false)
@@ -87,8 +95,11 @@ export default function RelatoriosPage() {
     load()
   }, [period, customStart, customEnd, monthPickerMonth, monthPickerYear])
 
-  const getCompanyName = (t: Ticket) => t.company_legal_name ?? t.company_name_free ?? 'Sem empresa'
+  const getCompanyName = (t: Ticket) => t.company_name_free ?? t.company_legal_name ?? 'Sem empresa'
   const getTypeName    = (t: Ticket) => t.type_name ?? t.type ?? 'Outros'
+  const periodLabel = period === 'month_picker'
+    ? `${MONTHS[monthPickerMonth]}_${monthPickerYear}`
+    : period === 'custom' ? `${customStart}_${customEnd}` : `${period}d`
 
   const total       = tickets.length
   const finalizados = tickets.filter(t => t.status === 'finalizado').length
@@ -97,8 +108,7 @@ export default function RelatoriosPage() {
   const slaVencidos = tickets.filter(t => t.sla_breached).length
   const tempoMedio  = tickets.filter(t => t.status === 'finalizado' && t.open_seconds > 0)
   const avgHours    = tempoMedio.length > 0
-    ? (tempoMedio.reduce((s,t) => s + t.open_seconds, 0) / tempoMedio.length / 3600).toFixed(1)
-    : '—'
+    ? (tempoMedio.reduce((s,t) => s + t.open_seconds, 0) / tempoMedio.length / 3600).toFixed(1) : '—'
 
   const byDept = useMemo(() => Object.entries(
     tickets.reduce((acc: Record<string,number>, t) => { acc[t.department] = (acc[t.department]??0)+1; return acc }, {})
@@ -116,8 +126,7 @@ export default function RelatoriosPage() {
     tickets.forEach(t => {
       const name = getCompanyName(t)
       if (!map[name]) map[name] = { name, total:0, finalizados:0, emAberto:0, slaVencidos:0, parceiro: t.partner_name??'—', tickets:[] }
-      map[name].total++
-      map[name].tickets.push(t)
+      map[name].total++; map[name].tickets.push(t)
       if (t.status === 'finalizado') map[name].finalizados++
       if (!['finalizado','cancelado','rascunho'].includes(t.status)) map[name].emAberto++
       if (t.sla_breached) map[name].slaVencidos++
@@ -140,44 +149,89 @@ export default function RelatoriosPage() {
   ).map(([s,c]) => ({ name: STATUS_LABELS[s]??s, value: c })), [tickets])
 
   const dailyData = useMemo(() => {
-    const days: Record<string,{date:string;abertos:number;finalizados:number}> = {}
+    const days: Record<string,{date:string;abertos:number;finalizados:number;slaVencidos:number}> = {}
     for (let i = 13; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate()-i)
       const key = d.toISOString().slice(0,10)
-      days[key] = { date: key.slice(5), abertos:0, finalizados:0 }
+      days[key] = { date: key.slice(5), abertos:0, finalizados:0, slaVencidos:0 }
     }
     tickets.forEach(t => {
       const key = t.created_at.slice(0,10)
-      if (days[key]) days[key].abertos++
+      if (days[key]) {
+        days[key].abertos++
+        if (t.sla_breached) days[key].slaVencidos++
+      }
       if (t.closed_at) { const k2 = t.closed_at.slice(0,10); if (days[k2]) days[k2].finalizados++ }
     })
     return Object.values(days)
   }, [tickets])
 
-  function exportXLSX() {
-    const rows = [
-      ['Protocolo','Empresa','Parceiro','Tipo','Departamento','Prioridade','Status','Atendente','Solicitante','Colaborador','Descricao','Aberto em','Fechado em','SLA Vencido'],
-      ...tickets.map(t => [
-        t.protocol, getCompanyName(t), t.partner_name??'', getTypeName(t),
-        DEPT_LABELS[t.department]??t.department,
-        t.priority==='alta'?'Alta':t.priority==='media'?'Media':'Baixa',
-        STATUS_LABELS[t.status]??t.status, t.attendant_name??'',
-        t.requester_name??'', t.employee_name??'',
-        (t.description??'').replace(/\n/g,' '),
-        new Date(t.created_at).toLocaleDateString('pt-BR'),
-        t.closed_at ? new Date(t.closed_at).toLocaleDateString('pt-BR') : '',
-        t.sla_breached ? 'Sim' : 'Nao',
-      ])
+  // EXPORTAÇÕES CONTEXTUAIS
+  const HEADER = ['Protocolo','Empresa','Parceiro','Tipo','Departamento','Prioridade','Status','Atendente','Solicitante','Colaborador','Descricao','Aberto em','Fechado em','SLA Vencido']
+
+  function ticketRow(t: Ticket) {
+    return [
+      t.protocol, getCompanyName(t), t.partner_name??'', getTypeName(t),
+      DEPT_LABELS[t.department]??t.department,
+      t.priority==='alta'?'Alta':t.priority==='media'?'Media':'Baixa',
+      STATUS_LABELS[t.status]??t.status, t.attendant_name??'',
+      t.requester_name??'', t.employee_name??'',
+      (t.description??'').replace(/\n/g,' '),
+      new Date(t.created_at).toLocaleDateString('pt-BR'),
+      t.closed_at ? new Date(t.closed_at).toLocaleDateString('pt-BR') : '',
+      t.sla_breached ? 'Sim' : 'Nao',
     ]
-    const csv = rows.map(r => r.map(c => '"'+String(c??'').replace(/"/g,'""')+'"').join(';')).join('\r\n')
-    const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    const label = period === 'month_picker'
-      ? `${MONTHS[monthPickerMonth]}_${monthPickerYear}`
-      : period === 'custom' ? `${customStart}_${customEnd}` : `${period}d`
-    a.download = `relatorio_vegas_${label}_${new Date().toISOString().slice(0,10)}.csv`
-    a.click(); URL.revokeObjectURL(url)
+  }
+
+  function exportGeral() {
+    makeCSV([HEADER, ...tickets.map(ticketRow)], `relatorio_geral_${periodLabel}.csv`)
+  }
+
+  function exportPorEmpresa() {
+    const rows: any[] = [['Empresa','Parceiro','Total','Em aberto','Finalizados','SLA vencido']]
+    byCompany.forEach(c => rows.push([c.name, c.parceiro, c.total, c.emAberto, c.finalizados, c.slaVencidos]))
+    makeCSV(rows, `relatorio_empresas_${periodLabel}.csv`)
+  }
+
+  function exportEmpresaDetalhe() {
+    if (!selectedCompanyData) return
+    const rows = [HEADER, ...selectedCompanyData.tickets.map(ticketRow)]
+    makeCSV(rows, `relatorio_${selectedCompanyData.name.replace(/\s+/g,'_')}_${periodLabel}.csv`)
+  }
+
+  function exportPorTipo() {
+    const rows: any[] = [['Tipo','Total','Finalizados','Em aberto','% do total']]
+    byType.forEach(t => {
+      const fins = tickets.filter(tk=>getTypeName(tk)===t.name&&tk.status==='finalizado').length
+      const abts = tickets.filter(tk=>getTypeName(tk)===t.name&&!['finalizado','cancelado','rascunho'].includes(tk.status)).length
+      rows.push([t.name, t.value, fins, abts, total>0?((t.value/total)*100).toFixed(1)+'%':'0%'])
+    })
+    makeCSV(rows, `relatorio_tipos_${periodLabel}.csv`)
+  }
+
+  function exportPorDepartamento() {
+    const rows: any[] = [['Departamento','Total','Finalizados','Em aberto','Taxa conclusao']]
+    byDept.forEach(d => {
+      const abts = tickets.filter(t=>t.department===d.key&&!['finalizado','cancelado','rascunho'].includes(t.status)).length
+      const taxa = d.count>0?((d.finalizados/d.count)*100).toFixed(1)+'%':'0%'
+      rows.push([d.dept, d.count, d.finalizados, abts, taxa])
+    })
+    makeCSV(rows, `relatorio_departamentos_${periodLabel}.csv`)
+  }
+
+  // Botão de exportar contextual
+  function ExportButton() {
+    if (tab === 'Empresas' && selectedCompany) {
+      return (
+        <button onClick={exportEmpresaDetalhe} className="btn">
+          <Download size={14} /> Excel — {selectedCompanyData?.name.slice(0,20)}
+        </button>
+      )
+    }
+    if (tab === 'Empresas') return <button onClick={exportPorEmpresa} className="btn"><Download size={14} /> Excel — Empresas</button>
+    if (tab === 'Tipos de Solicitacao') return <button onClick={exportPorTipo} className="btn"><Download size={14} /> Excel — Tipos</button>
+    if (tab === 'Departamentos') return <button onClick={exportPorDepartamento} className="btn"><Download size={14} /> Excel — Departamentos</button>
+    return <button onClick={exportGeral} className="btn"><Download size={14} /> Excel — Geral</button>
   }
 
   return (
@@ -195,27 +249,19 @@ export default function RelatoriosPage() {
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </optgroup>
-            <optgroup label="Mes especifico">
-              <option value="month_picker">Escolher mes/ano...</option>
-            </optgroup>
-            <optgroup label="Personalizado">
-              <option value="custom">Periodo personalizado</option>
-            </optgroup>
+            <optgroup label="Mes especifico"><option value="month_picker">Escolher mes/ano...</option></optgroup>
+            <optgroup label="Personalizado"><option value="custom">Periodo personalizado</option></optgroup>
           </select>
-
           {period === 'month_picker' && (
             <div className="flex gap-2">
               <select className="select w-32" value={monthPickerMonth} onChange={e => setMonthPickerMonth(parseInt(e.target.value))}>
                 {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
               </select>
               <select className="select w-24" value={monthPickerYear} onChange={e => setMonthPickerYear(parseInt(e.target.value))}>
-                {Array.from({length:6}, (_,i) => new Date().getFullYear()-i).map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
+                {Array.from({length:6}, (_,i) => new Date().getFullYear()-i).map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
           )}
-
           {period === 'custom' && (
             <div className="flex gap-2 items-center">
               <input type="date" className="select w-36" value={customStart} onChange={e => setCustomStart(e.target.value)} />
@@ -223,10 +269,7 @@ export default function RelatoriosPage() {
               <input type="date" className="select w-36" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
             </div>
           )}
-
-          <button onClick={exportXLSX} className="btn">
-            <Download size={14} /> Exportar Excel
-          </button>
+          <ExportButton />
         </div>
       </div>
 
@@ -275,6 +318,7 @@ export default function RelatoriosPage() {
                       <Tooltip />
                       <Line type="monotone" dataKey="abertos" stroke="#185FA5" name="Abertos" strokeWidth={2} dot={false} />
                       <Line type="monotone" dataKey="finalizados" stroke="#10B981" name="Finalizados" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="slaVencidos" stroke="#EF4444" name="SLA Vencido" strokeWidth={2} dot={false} strokeDasharray="4 2" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -412,12 +456,12 @@ export default function RelatoriosPage() {
                   <span className="card-title">Atendimentos</span>
                   <span className="text-xs text-gray-400">{selectedCompanyData.tickets.length} registros</span>
                 </div>
-                <div className="table-header grid text-xs" style={{gridTemplateColumns:'120px 1fr 110px 80px 120px 80px'}}>
-                  <span>Protocolo</span><span>Tipo</span><span>Depto</span><span>Prioridade</span><span>Status</span><span>Data</span>
+                <div className="table-header grid text-xs" style={{gridTemplateColumns:'130px 1fr 110px 80px 120px 80px 40px'}}>
+                  <span>Protocolo</span><span>Tipo</span><span>Depto</span><span>Prioridade</span><span>Status</span><span>Data</span><span></span>
                 </div>
                 {selectedCompanyData.tickets.map(t => (
-                  <div key={t.id} className="table-row grid text-xs" style={{gridTemplateColumns:'120px 1fr 110px 80px 120px 80px'}}>
-                    <span className="font-mono text-gray-400">{t.protocol}</span>
+                  <div key={t.id} className="table-row grid text-xs items-center" style={{gridTemplateColumns:'130px 1fr 110px 80px 120px 80px 40px'}}>
+                    <span className="font-mono text-gray-500">{t.protocol}</span>
                     <span className="truncate text-gray-900 font-medium">{getTypeName(t)}</span>
                     <span className="text-gray-500">{DEPT_LABELS[t.department]??t.department}</span>
                     <span className={t.priority==='alta'?'text-red-600':t.priority==='media'?'text-amber-600':'text-green-600'}>
@@ -425,6 +469,10 @@ export default function RelatoriosPage() {
                     </span>
                     <span className="text-gray-600">{STATUS_LABELS[t.status]??t.status}</span>
                     <span className="text-gray-400">{new Date(t.created_at).toLocaleDateString('pt-BR')}</span>
+                    <Link href={`/atendimentos/${t.id}`} target="_blank"
+                      className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 text-gray-400 hover:text-[#185FA5] hover:border-blue-200 hover:bg-blue-50 transition-colors">
+                      <ExternalLink size={11} />
+                    </Link>
                   </div>
                 ))}
               </div>
@@ -540,14 +588,14 @@ export default function RelatoriosPage() {
             <div className="card">
               <div className="card-header">
                 <span className="card-title">Lista completa — {total} atendimentos</span>
-                <button onClick={exportXLSX} className="btn btn-sm text-xs"><Download size={12} /> Excel</button>
+                <button onClick={exportGeral} className="btn btn-sm text-xs"><Download size={12} /> Excel</button>
               </div>
-              <div className="table-header grid text-xs" style={{gridTemplateColumns:'120px 1fr 1fr 110px 80px 120px 80px'}}>
-                <span>Protocolo</span><span>Empresa</span><span>Tipo</span><span>Depto</span><span>Prioridade</span><span>Status</span><span>Data</span>
+              <div className="table-header grid text-xs" style={{gridTemplateColumns:'130px 1fr 1fr 110px 80px 120px 80px 40px'}}>
+                <span>Protocolo</span><span>Empresa</span><span>Tipo</span><span>Depto</span><span>Prioridade</span><span>Status</span><span>Data</span><span></span>
               </div>
               {tickets.map(t => (
-                <div key={t.id} className="table-row grid text-xs" style={{gridTemplateColumns:'120px 1fr 1fr 110px 80px 120px 80px'}}>
-                  <span className="font-mono text-gray-400">{t.protocol}</span>
+                <div key={t.id} className="table-row grid text-xs items-center" style={{gridTemplateColumns:'130px 1fr 1fr 110px 80px 120px 80px 40px'}}>
+                  <span className="font-mono text-gray-500">{t.protocol}</span>
                   <span className="truncate text-gray-900 font-medium">{getCompanyName(t)}</span>
                   <span className="truncate text-gray-600">{getTypeName(t)}</span>
                   <span className="text-gray-500">{DEPT_LABELS[t.department]??t.department}</span>
@@ -556,6 +604,10 @@ export default function RelatoriosPage() {
                   </span>
                   <span className="text-gray-600">{STATUS_LABELS[t.status]??t.status}</span>
                   <span className="text-gray-400">{new Date(t.created_at).toLocaleDateString('pt-BR')}</span>
+                  <Link href={`/atendimentos/${t.id}`} target="_blank"
+                    className="flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 text-gray-400 hover:text-[#185FA5] hover:border-blue-200 hover:bg-blue-50 transition-colors">
+                    <ExternalLink size={11} />
+                  </Link>
                 </div>
               ))}
             </div>
