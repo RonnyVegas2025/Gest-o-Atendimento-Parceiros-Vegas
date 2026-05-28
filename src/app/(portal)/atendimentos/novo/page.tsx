@@ -220,8 +220,11 @@ export default function NovoAtendimentoPage() {
                 {showDropdown && !selectedCompany && companySearch && (
                   <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto z-10 relative">
                     {filtered.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-gray-400">Nenhuma empresa encontrada</div>
-                    ) : filtered.slice(0, 6).map(c => (
+                      <div className="px-4 py-3 text-sm text-gray-400">
+                        <div className="text-gray-500 mb-1">Nenhuma empresa encontrada</div>
+                        {isPre && <div className="text-xs text-amber-600">O nome digitado será salvo como está. Complete o cadastro depois em Empresas.</div>}
+                    </div>
+                  ) : filtered.slice(0, 6).map(c => (
                       <button key={c.id} type="button"
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
                         onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
