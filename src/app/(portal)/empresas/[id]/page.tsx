@@ -17,9 +17,7 @@ const PROD_COLORS: Record<string,{bg:string;color:string}> = {
 function EditableField({ label, value, onSave }: { label: string; value: string | null; onSave: (v: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
-
   function save() { onSave(val); setEditing(false) }
-
   return (
     <div>
       <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{label}</div>
@@ -47,12 +45,15 @@ function EditableField({ label, value, onSave }: { label: string; value: string 
   )
 }
 
-function EditableSelect({ label, value, options, onSave }: { label: string; value: string | null; options: {value:string;label:string}[]; onSave: (v: string) => void }) {
+function EditableSelect({ label, value, options, onSave }: {
+  label: string; value: string | null;
+  options: {value:string;label:string}[];
+  onSave: (v: string) => void
+}) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
-
   function save() { onSave(val); setEditing(false) }
-
+  const displayLabel = options.find(o => o.value === val)?.label ?? val ?? ''
   return (
     <div>
       <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">{label}</div>
@@ -68,8 +69,8 @@ function EditableSelect({ label, value, options, onSave }: { label: string; valu
         </div>
       ) : (
         <div className="flex items-center gap-2 group">
-          <div className={`text-sm font-semibold ${value ? 'text-gray-800' : 'text-amber-500'}`}>
-            {options.find(o => o.value === value)?.label ?? value ?? 'Não preenchido — clique para editar'}
+          <div className={`text-sm font-semibold ${displayLabel ? 'text-gray-800' : 'text-amber-500'}`}>
+            {displayLabel || 'Não preenchido — clique para editar'}
           </div>
           <button onClick={() => setEditing(true)}
             className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
@@ -89,7 +90,7 @@ export default function EmpresaDetalhePage() {
   const [empresa, setEmpresa] = useState<any>(null)
   const [parceiros, setParceiros] = useState<{id:string;name:string}[]>([])
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [msg, setMsg] = useState<{text:string;ok:boolean}|null>(null)
 
   async function load() {
     const [{ data }, { data: parts }] = await Promise.all([
@@ -153,7 +154,6 @@ export default function EmpresaDetalhePage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 space-y-4">
 
-          {/* Dados Cadastrais */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Dados Cadastrais</span>
@@ -171,7 +171,7 @@ export default function EmpresaDetalhePage() {
               </div>
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
-                <div className="text-sm font-semibold text-gray-800">{empresa.id_grupo}</div>
+                <div className="text-sm font-semibold text-gray-800">{empresa.id_grupo ?? '—'}</div>
               </div>
               <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
               <div>
@@ -183,7 +183,6 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
-          {/* Endereço */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Endereço</span>
@@ -200,7 +199,6 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
-          {/* Contato Geral */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Contato Geral</span>
@@ -212,7 +210,6 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
-          {/* Contato RH */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Contato RH</span>
@@ -225,7 +222,6 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
-          {/* Contato Financeiro */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Contato Financeiro</span>
@@ -240,9 +236,7 @@ export default function EmpresaDetalhePage() {
 
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-4">
-          {/* Produtos */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Produtos Contratados</span>
@@ -267,22 +261,22 @@ export default function EmpresaDetalhePage() {
             </div>
           </div>
 
-          {/* Grupo Econômico */}
           <div className="card">
             <div className="card-header"><span className="card-title">Grupo Econômico</span></div>
-            <div className="divide-y divide-gray-50">
-              {[
-                { label:'ID Grupo',     value: empresa.id_grupo,    bold: true },
-                { label:'Parceiro',     value: empresa.parceiro },
-                { label:'Cadastrado em', value: empresa.data_cadastro ? new Date(empresa.data_cadastro).toLocaleDateString('pt-BR') : '—' },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between px-4 py-2.5">
-                  <span className="text-xs text-gray-400">{item.label}</span>
-                  <span className={`text-xs font-semibold ${(item as any).bold ? 'text-indigo-600' : 'text-gray-700'}`}>{item.value}</span>
+            <div className="p-4 space-y-3">
+              <div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
+                <div className="text-xs font-bold text-indigo-600">{empresa.id_grupo ?? '—'}</div>
+              </div>
+              <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
+              <div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Cadastrado em</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  {empresa.data_cadastro ? new Date(empresa.data_cadastro).toLocaleDateString('pt-BR') : '—'}
                 </div>
-              ))}
+              </div>
             </div>
-            <div className="px-4 pb-3 pt-1">
+            <div className="px-4 pb-3">
               <button onClick={() => router.push(`/empresas?busca=${empresa.id_grupo}`)}
                 className="w-full py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 text-xs font-bold hover:bg-indigo-100 transition-colors">
                 Ver todas empresas do grupo →
