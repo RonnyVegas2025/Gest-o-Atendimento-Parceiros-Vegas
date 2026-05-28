@@ -358,8 +358,11 @@ export default function EmpresasPage() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Parceiro</label>
-                    <input className="input" value={form.parceiro} onChange={e => setForm(f => ({...f, parceiro: e.target.value}))} />
-                  </div>
+                    <select className="select" value={form.parceiro} onChange={e => setForm(f => ({...f, parceiro: e.target.value}))}>
+                      <option value="">Selecione o parceiro...</option>
+                      {parceiros.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                </div>
                 </div>
               </div>
 
