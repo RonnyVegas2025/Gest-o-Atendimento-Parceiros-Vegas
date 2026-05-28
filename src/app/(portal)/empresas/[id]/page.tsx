@@ -270,16 +270,17 @@ export default function EmpresaDetalhePage() {
           {/* Grupo Econômico */}
           <div className="card">
             <div className="card-header"><span className="card-title">Grupo Econômico</span></div>
-            <div className="divide-y divide-gray-50">
-              {[
-                { label:'ID Grupo',     value: empresa.id_grupo,    bold: true },
-                { label:'Parceiro',     value: empresa.parceiro },
-                { label:'Cadastrado em', value: empresa.data_cadastro ? new Date(empresa.data_cadastro).toLocaleDateString('pt-BR') : '—' },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between px-4 py-2.5">
-                  <span className="text-xs text-gray-400">{item.label}</span>
-                  <span className={`text-xs font-semibold ${(item as any).bold ? 'text-indigo-600' : 'text-gray-700'}`}>{item.value}</span>
-                </div>
+           <div className="divide-y divide-gray-50 px-4 py-3 space-y-3">
+  <div>
+    <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
+    <div className="text-xs font-bold text-indigo-600">{empresa.id_grupo ?? '—'}</div>
+  </div>
+  <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
+  <div>
+    <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Cadastrado em</div>
+    <div className="text-xs font-semibold text-gray-700">{empresa.data_cadastro ? new Date(empresa.data_cadastro).toLocaleDateString('pt-BR') : '—'}</div>
+  </div>
+</div>
               ))}
             </div>
             <div className="px-4 pb-3 pt-1">
