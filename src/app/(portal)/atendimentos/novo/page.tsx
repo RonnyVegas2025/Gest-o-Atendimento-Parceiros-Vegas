@@ -46,6 +46,7 @@ export default function NovoAtendimentoPage() {
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
+  const [parceiros, setParceiros] = useState<{id:string;name:string}[]>([])
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([])
   const [filtered, setFiltered] = useState<Company[]>([])
   const [companySearch, setCompanySearch] = useState('')
