@@ -17,12 +17,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       if (!user) { router.push('/login'); return }
       setUserEmail(user.email ?? '')
 
-      // Busca nome do atendente pelo email
+      // Busca nome do usuário pelo email
       const { data } = await supabase
-        .from('attendants')
+        .from('users_profile')
         .select('full_name')
         .eq('email', user.email)
-        .single()
+        .maybeSingle()
 
       if (data?.full_name) setUserName(data.full_name)
       else setUserName(user.email ?? '')
