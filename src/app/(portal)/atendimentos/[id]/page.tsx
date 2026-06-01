@@ -320,11 +320,11 @@ export default function TicketDetailPage() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       const { data } = await supabase
-        .from('attendants').select('id').eq('email', user.email ?? '').maybeSingle()
+        .from('users_profile').select('id').eq('email', user.email ?? '').maybeSingle()
       if (data?.id) {
         setCurrentUserId(data.id)
       } else {
-        setCurrentUserId('aaaaaaaa-0000-0000-0000-000000000001')
+        setCurrentUserId('00000000-0000-0000-0000-000000000001')
       }
     })
 
