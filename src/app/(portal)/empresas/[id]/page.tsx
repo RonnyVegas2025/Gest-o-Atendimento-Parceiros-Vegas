@@ -248,11 +248,18 @@ export default function EmpresaDetalhePage() {
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
 
-              {/* CNPJ + botão atualizar */}
+              {/* CNPJ editável + botão atualizar */}
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">CNPJ</div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-semibold font-mono text-gray-800">{cnpjFmt ?? '—'}</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <EditableField
+                    label=""
+                    value={cnpjFmt ?? empresa.cnpj ?? null}
+                    onSave={v => {
+                      const limpo = v.replace(/\D/g, '')
+                      saveField('cnpj', limpo)
+                    }}
+                  />
                   {empresa.cnpj && (
                     <button
                       onClick={atualizarViaCnpj}
@@ -268,19 +275,11 @@ export default function EmpresaDetalhePage() {
               </div>
 
               <EditableField label="Razão Social" value={empresa.razao_social} onSave={v => saveField('razao_social', v)} />
-              <div>
-                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Nome Fantasia</div>
-                <div className="text-sm font-semibold text-gray-800">{empresa.nome_fantasia}</div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
-                <div className="text-sm font-semibold text-gray-800">{empresa.id_grupo ?? '—'}</div>
-              </div>
+              <EditableField label="Nome Fantasia" value={empresa.nome_fantasia} onSave={v => saveField('nome_fantasia', v)} />
+              <EditableField label="ID Grupo" value={empresa.id_grupo ? String(empresa.id_grupo) : null} onSave={v => saveField('id_grupo', v)} />
               <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
-              <div>
-                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Município/UF</div>
-                <div className="text-sm font-semibold text-gray-800">{empresa.municipio} · {empresa.uf}</div>
-              </div>
+              <EditableField label="Município" value={empresa.municipio} onSave={v => saveField('municipio', v)} />
+              <EditableField label="UF" value={empresa.uf} onSave={v => saveField('uf', v)} />
               <EditableField label="Situação CNPJ" value={empresa.situacao_cnpj} onSave={v => saveField('situacao_cnpj', v)} />
               <EditableField label="CNAE" value={empresa.cnae_principal} onSave={v => saveField('cnae_principal', v)} />
             </div>
@@ -298,6 +297,7 @@ export default function EmpresaDetalhePage() {
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Cidade/UF</div>
                 <div className="text-sm font-semibold text-gray-800">{empresa.municipio} · {empresa.uf}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">Edite Município e UF nos Dados Cadastrais</div>
               </div>
             </div>
           </div>
