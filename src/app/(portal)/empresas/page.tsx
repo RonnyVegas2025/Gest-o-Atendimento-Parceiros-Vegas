@@ -476,6 +476,38 @@ export default function EmpresasPage() {
               {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{saveError}</p>}
               {saveOk && <p className="text-xs text-green-600 bg-green-50 px-3 py-2 rounded-lg border border-green-100">✓ Empresa cadastrada com sucesso!</p>}
 
+              {/* Modo de importação */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button onClick={() => setImportMode('substituir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'substituir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  🔄 Atualizar existentes + inserir novas
+                </button>
+                <button onClick={() => setImportMode('inserir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'inserir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  ➕ Apenas inserir novas
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 -mt-2">
+                {importMode === 'substituir'
+                  ? 'Se o CNPJ já existir no sistema, atualiza os dados e produtos. Se não existir, cria nova empresa.'
+                  : 'Sempre cria novas empresas, mesmo que o CNPJ já exista.'}
+              </p>
+              <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
+              <button onClick={() => fileRef.current?.click()}
+                className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-2">
+                <Upload size={20} />
+                Clique para selecionar o arquivo CSV
+              </button>
+              {csvRows.length > 0 && (
+                <div className="px-4 py-3 bg-green-50 rounded-xl text-xs text-green-700 border border-green-100">
+                  ✓ {csvRows.length} empresas encontradas — pronto para importar
+                </div>
+              )}
+              {importResult && (
+                <div className={`px-4 py-3 rounded-xl text-xs border ${importResult.err===0?'bg-green-50 text-green-700 border-green-100':'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                  ✓ {importResult.ok} importadas{importResult.err>0?` · ${importResult.err} com erro`:''}
+                </div>
+              )}
               <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                 <button onClick={() => setShowModal(false)} className="btn">Cancelar</button>
                 <button onClick={handleSave} disabled={saving || saveOk} className="btn-primary">
