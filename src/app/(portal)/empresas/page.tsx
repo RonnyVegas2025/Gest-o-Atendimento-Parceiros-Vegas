@@ -182,6 +182,8 @@ export default function EmpresasPage() {
     setTimeout(() => { setSaveOk(false); setShowModal(false); setForm(EMPTY_FORM); load() }, 1500)
   }
 
+  const [importMode, setImportMode] = useState<'inserir' | 'substituir'>('substituir')
+
   function parseCSV(text: string) {
     const lines = text.trim().split('\n')
     if (lines.length < 2) return []
@@ -206,25 +208,89 @@ export default function EmpresasPage() {
     if (csvRows.length === 0) return
     setImporting(true)
     let ok = 0, err = 0
+
     for (const row of csvRows) {
       const nome = row.nome_fantasia || row['nome fantasia'] || row.nome || ''
       if (!nome) { err++; continue }
-      const { error } = await supabase.from('empresas_conveniadas').insert({
-        nome_fantasia: nome.trim(),
-        razao_social:  row.razao_social || row['razão social'] || null,
-        cnpj:          (row.cnpj || '').replace(/\D/g,'') || null,
-        id_grupo:      row.id_grupo ? parseInt(row.id_grupo) : null,
-        municipio:     row.municipio || row.cidade || null,
-        uf:            row.uf || row.estado || null,
-        telefone:      row.telefone || null,
-        email:         row.email || null,
-        parceiro:      row.parceiro || null,
-        ativo:         true,
-        dados_enriquecidos: false,
-      })
-      if (error) err++; else ok++
+
+      const cnpjLimpo = (row.cnpj || '').replace(/\D/g,'') || null
+      const idGrupo   = row.id_grupo ? parseInt(row.id_grupo) : null
+      const parceiro  = row.parceiro || null
+      const municipio = row.municipio || row.cidade || null
+      const uf        = row.uf || row.estado || null
+
+      // Produtos separados por | ex: "Alimentação|Vegas Plus"
+      const produtosArr  = row.produtos ? row.produtos.split('|').map((p: string) => p.trim()).filter(Boolean) : []
+      const prodIdsArr   = row.produto_ids ? row.produto_ids.split('|').map((p: string) => p.trim()).filter(Boolean) : []
+
+      let empresaId: string | null = null
+
+      if (importMode === 'substituir' && cnpjLimpo) {
+        // Verifica se já existe pelo CNPJ
+        const { data: existing } = await supabase
+          .from('empresas_conveniadas')
+          .select('id')
+          .eq('cnpj', cnpjLimpo)
+          .single()
+
+        if (existing?.id) {
+          // Atualiza a empresa existente
+          const { error } = await supabase.from('empresas_conveniadas')
+            .update({
+              nome_fantasia: nome.trim(),
+              razao_social:  row.razao_social || null,
+              id_grupo:      idGrupo,
+              municipio,
+              uf,
+              parceiro,
+              ativo:         true,
+            })
+            .eq('id', existing.id)
+
+          if (error) { err++; continue }
+          empresaId = existing.id
+
+          // Remove produtos antigos e reinserere
+          await supabase.from('empresas_produtos').delete().eq('empresa_id', empresaId)
+        }
+      }
+
+      // Se não encontrou existente ou modo inserir — cria nova
+      if (!empresaId) {
+        const { data, error } = await supabase.from('empresas_conveniadas').insert({
+          nome_fantasia:      nome.trim(),
+          razao_social:       row.razao_social || null,
+          cnpj:               cnpjLimpo,
+          id_grupo:           idGrupo,
+          municipio,
+          uf,
+          telefone:           row.telefone || null,
+          email:              row.email || null,
+          parceiro,
+          ativo:              true,
+          dados_enriquecidos: false,
+        }).select('id').single()
+
+        if (error || !data) { err++; continue }
+        empresaId = data.id
+      }
+
+      // Insere produtos
+      if (produtosArr.length > 0 && empresaId) {
+        await supabase.from('empresas_produtos').insert(
+          produtosArr.map((p: string, i: number) => ({
+            empresa_id:   empresaId,
+            produto_nome: p,
+            produto_id:   prodIdsArr[i] ? parseInt(prodIdsArr[i]) : null,
+          }))
+        )
+      }
+
+      ok++
     }
-    setImporting(false); setImportResult({ ok, err })
+
+    setImporting(false)
+    setImportResult({ ok, err })
     if (ok > 0) load()
   }
 
@@ -587,9 +653,29 @@ export default function EmpresasPage() {
             <div className="p-6 space-y-4">
               <div className="px-4 py-3 bg-blue-50 rounded-xl text-xs text-blue-700 border border-blue-100 space-y-1">
                 <div className="font-semibold">Formato esperado (separador ponto e vírgula):</div>
-                <div className="font-mono text-[10px] break-all">nome_fantasia;razao_social;cnpj;id_grupo;municipio;uf;telefone;email;parceiro</div>
-                <div className="text-blue-600 mt-1">Primeira linha = cabeçalho. Campos opcionais podem ficar em branco.</div>
+                <div className="font-mono text-[10px] break-all">nome_fantasia;razao_social;cnpj;id_grupo;municipio;uf;parceiro;produtos;produto_ids</div>
+                <div className="text-blue-600 mt-1">
+                  Múltiplos produtos separados por <strong>|</strong> ex: <span className="font-mono">Alimentação|Vegas Plus</span>
+                </div>
+                <div className="text-blue-600">Primeira linha = cabeçalho. Campos opcionais podem ficar em branco.</div>
               </div>
+
+              {/* Modo de importação */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button onClick={() => setImportMode('substituir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'substituir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  🔄 Atualizar existentes + inserir novas
+                </button>
+                <button onClick={() => setImportMode('inserir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'inserir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  ➕ Apenas inserir novas
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 -mt-2">
+                {importMode === 'substituir'
+                  ? 'Se o CNPJ já existir no sistema, atualiza os dados e produtos. Se não existir, cria nova empresa.'
+                  : 'Sempre cria novas empresas, mesmo que o CNPJ já exista.'}
+              </p>
               <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
               <button onClick={() => fileRef.current?.click()}
                 className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-2">
