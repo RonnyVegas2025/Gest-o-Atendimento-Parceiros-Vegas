@@ -133,15 +133,49 @@ export default function EmpresaDetalhePage() {
 
     try {
       const cnpjLimpo = empresa.cnpj.replace(/\D/g, '')
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
 
-      if (!res.ok) {
-        setMsg({ text: 'CNPJ não encontrado na Receita Federal.', ok: false })
+      if (cnpjLimpo.length !== 14) {
+        setMsg({ text: `CNPJ inválido: "${empresa.cnpj}" (${cnpjLimpo.length} dígitos). Corrija o CNPJ primeiro.`, ok: false })
         setLoadingCnpj(false)
         return
       }
 
-      const data = await res.json()
+      // Tenta BrasilAPI primeiro, ReceitaWS como fallback
+      let data: any = null
+
+      const res1 = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
+      if (res1.ok) {
+        data = await res1.json()
+      } else {
+        // Fallback: ReceitaWS
+        const res2 = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpjLimpo}`)
+        if (res2.ok) {
+          const d2 = await res2.json()
+          if (d2.status !== 'ERROR') {
+            // Normaliza campos do ReceitaWS para o mesmo formato da BrasilAPI
+            data = {
+              razao_social:                  d2.nome,
+              descricao_situacao_cadastral:  d2.situacao,
+              cnae_fiscal:                   d2.atividade_principal?.[0]?.code,
+              cnae_fiscal_descricao:         d2.atividade_principal?.[0]?.text,
+              logradouro:                    d2.logradouro,
+              numero:                        d2.numero,
+              complemento:                   d2.complemento,
+              bairro:                        d2.bairro,
+              cep:                           d2.cep?.replace(/\D/g, ''),
+              municipio:                     d2.municipio,
+              uf:                            d2.uf,
+              ddd_telefone_1:                d2.telefone,
+            }
+          }
+        }
+      }
+
+      if (!data) {
+        setMsg({ text: 'CNPJ não encontrado nas APIs da Receita Federal. Verifique se o CNPJ está correto.', ok: false })
+        setLoadingCnpj(false)
+        return
+      }
 
       // Monta apenas os campos que estão vazios no banco
       const updates: Record<string, string> = {}
