@@ -59,6 +59,7 @@ export default function NovoAtendimentoPage() {
 
   // ✅ Estado para capturar URLs das imagens coladas no PasteTextarea
   const [pasteImageUrls, setPasteImageUrls] = useState<string[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string>('00000000-0000-0000-0000-000000000001')
 
   const [form, setForm] = useState({
     requester_name: '',
@@ -73,6 +74,17 @@ export default function NovoAtendimentoPage() {
   })
 
   useEffect(() => {
+    // Busca usuário logado e cruza com attendants pelo email
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase
+        .from('attendants')
+        .select('id')
+        .eq('email', user.email)
+        .single()
+      if (data?.id) setCurrentUserId(data.id)
+    })
+
     Promise.all([
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
       supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
@@ -165,7 +177,7 @@ export default function NovoAtendimentoPage() {
       priority:           form.priority,
       status,
       protocol:           '',
-      created_by:         '00000000-0000-0000-0000-000000000001',
+      created_by:         currentUserId,
       // ✅ Salva as URLs das imagens coladas na descrição
       description_images: pasteImageUrls.length > 0 ? pasteImageUrls : null,
     }
