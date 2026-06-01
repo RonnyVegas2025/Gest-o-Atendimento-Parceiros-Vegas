@@ -95,9 +95,9 @@ function CadastrarEmpresaModal({
     setCnpjMsg('')
     try {
       const cnpjLimpo = form.cnpj.replace(/\D/g, '')
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
-      if (!res.ok) { setCnpjMsg('CNPJ não encontrado.'); setLoadingCnpj(false); return }
+      const res = await fetch(`/api/cnpj/${cnpjLimpo}`)
       const data = await res.json()
+      if (!res.ok || data.error) { setCnpjMsg('CNPJ não encontrado.'); setLoadingCnpj(false); return }
       setForm(p => ({
         ...p,
         razao_social:   data.razao_social ?? p.razao_social,
