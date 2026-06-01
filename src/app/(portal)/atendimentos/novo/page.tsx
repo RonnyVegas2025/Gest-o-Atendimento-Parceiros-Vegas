@@ -74,19 +74,18 @@ export default function NovoAtendimentoPage() {
   })
 
   useEffect(() => {
-    // Busca usuário logado e cruza com attendants pelo email
+    // Busca usuário logado na tabela users_profile pelo email
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       const { data } = await supabase
-        .from('attendants')
+        .from('users_profile')
         .select('id')
         .eq('email', user.email ?? '')
         .maybeSingle()
       if (data?.id) {
         setCurrentUserId(data.id)
       } else {
-        // fallback: usa o sistema se não encontrar attendant
-        setCurrentUserId('aaaaaaaa-0000-0000-0000-000000000001')
+        setCurrentUserId('00000000-0000-0000-0000-000000000001')
       }
     })
 
