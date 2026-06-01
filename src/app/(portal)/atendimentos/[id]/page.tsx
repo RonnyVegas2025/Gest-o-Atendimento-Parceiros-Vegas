@@ -289,6 +289,7 @@ export default function TicketDetailPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [parceiros, setParceiros] = useState<{id:string;name:string}[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string>('00000000-0000-0000-0000-000000000001')
 
   // Modal de cadastro de empresa
   const [showCadastroModal, setShowCadastroModal] = useState(false)
@@ -316,6 +317,13 @@ export default function TicketDetailPage() {
   useEffect(() => { fetchData() }, [id])
 
   useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase
+        .from('attendants').select('id').eq('email', user.email).single()
+      if (data?.id) setCurrentUserId(data.id)
+    })
+
     Promise.all([
       supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name'),
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
@@ -373,7 +381,7 @@ export default function TicketDetailPage() {
     await supabase.from('ticket_history').insert({
       ticket_id: id,
       action: 'Empresa cadastrada e vinculada ao atendimento',
-      user_id: '00000000-0000-0000-0000-000000000001',
+      user_id: currentUserId,
     })
 
     setShowCadastroModal(false)
@@ -410,7 +418,7 @@ export default function TicketDetailPage() {
       observation: obsComImagens,
       from_status: ticket?.status,
       to_status: actionStatus,
-      user_id: '00000000-0000-0000-0000-000000000001',
+      user_id: currentUserId,
       elapsed_seconds: elapsedSeconds,
     })
 
@@ -442,7 +450,7 @@ export default function TicketDetailPage() {
     await supabase.from('ticket_history').insert({
       ticket_id: id,
       action: 'Informacoes do atendimento editadas',
-      user_id: '00000000-0000-0000-0000-000000000001',
+      user_id: currentUserId,
     })
 
     setSavingEdit(false)
@@ -458,7 +466,7 @@ export default function TicketDetailPage() {
     await supabase.from('ticket_history').insert({
       ticket_id: id, action: 'Atendimento cancelado',
       from_status: ticket?.status, to_status: 'cancelado',
-      user_id: '00000000-0000-0000-0000-000000000001',
+      user_id: currentUserId,
     })
     fetchData()
   }
