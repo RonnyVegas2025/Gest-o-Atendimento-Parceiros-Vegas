@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Search, Plus, Upload, X, Loader2 } from 'lucide-react'
+import { Search, Plus, Upload, X, Loader2, PowerOff, Power } from 'lucide-react'
 
 const PRODUTOS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Combustível Frota','Farmácia','Cartão Natal']
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
@@ -35,6 +35,7 @@ export default function EmpresasPage() {
   const [busca, setBusca]             = useState('')
   const [filtroProd, setFiltroProd]   = useState('')
   const [filtroUF, setFiltroUF]       = useState('')
+  const [filtroStatus, setFiltroStatus] = useState<'ativas' | 'inativas' | 'todas'>('ativas')
   const [total, setTotal]             = useState(0)
   const [page, setPage]               = useState(0)
   const PER_PAGE = 20
@@ -53,7 +54,10 @@ export default function EmpresasPage() {
   const [importing, setImporting]     = useState(false)
   const [importResult, setImportResult] = useState<{ok:number;err:number} | null>(null)
 
-  // Carrega parceiros
+  // Confirmação de desativar
+  const [confirmando, setConfirmando] = useState<{id:string;nome:string;ativo:boolean} | null>(null)
+  const [togglingId, setTogglingId]   = useState<string | null>(null)
+
   useEffect(() => {
     supabase.from('partners').select('id, name').order('name')
       .then(({ data }) => setParceiros((data as any[]) ?? []))
@@ -63,10 +67,13 @@ export default function EmpresasPage() {
     setLoading(true)
     let query = supabase
       .from('empresas_conveniadas')
-      .select('id, cnpj, nome_fantasia, razao_social, uf, municipio, id_grupo, dados_enriquecidos, parceiro, empresas_produtos(produto_nome)', { count: 'exact' })
-      .eq('ativo', true)
+      .select('id, cnpj, nome_fantasia, razao_social, uf, municipio, id_grupo, dados_enriquecidos, parceiro, ativo, empresas_produtos(produto_nome)', { count: 'exact' })
       .order('nome_fantasia')
       .range(page * PER_PAGE, (page + 1) * PER_PAGE - 1)
+
+    // Filtro de status
+    if (filtroStatus === 'ativas')   query = query.eq('ativo', true)
+    if (filtroStatus === 'inativas') query = query.eq('ativo', false)
 
     if (busca.trim()) {
       const digits = busca.trim().replace(/\D/g,'')
@@ -91,9 +98,19 @@ export default function EmpresasPage() {
     setEmpresas(result)
     setTotal(count ?? 0)
     setLoading(false)
-  }, [busca, filtroUF, filtroProd, page])
+  }, [busca, filtroUF, filtroProd, filtroStatus, page])
 
   useEffect(() => { load() }, [load])
+
+  async function toggleAtivo(id: string, ativoAtual: boolean) {
+    setTogglingId(id)
+    await supabase.from('empresas_conveniadas')
+      .update({ ativo: !ativoAtual })
+      .eq('id', id)
+    setTogglingId(null)
+    setConfirmando(null)
+    load()
+  }
 
   async function buscarCNPJ() {
     const cnpjLimpo = form.cnpj.replace(/\D/g,'')
@@ -165,6 +182,8 @@ export default function EmpresasPage() {
     setTimeout(() => { setSaveOk(false); setShowModal(false); setForm(EMPTY_FORM); load() }, 1500)
   }
 
+  const [importMode, setImportMode] = useState<'inserir' | 'substituir'>('substituir')
+
   function parseCSV(text: string) {
     const lines = text.trim().split('\n')
     if (lines.length < 2) return []
@@ -189,36 +208,103 @@ export default function EmpresasPage() {
     if (csvRows.length === 0) return
     setImporting(true)
     let ok = 0, err = 0
+
     for (const row of csvRows) {
       const nome = row.nome_fantasia || row['nome fantasia'] || row.nome || ''
       if (!nome) { err++; continue }
-      const { error } = await supabase.from('empresas_conveniadas').insert({
-        nome_fantasia: nome.trim(),
-        razao_social:  row.razao_social || row['razão social'] || null,
-        cnpj:          (row.cnpj || '').replace(/\D/g,'') || null,
-        id_grupo:      row.id_grupo ? parseInt(row.id_grupo) : null,
-        municipio:     row.municipio || row.cidade || null,
-        uf:            row.uf || row.estado || null,
-        telefone:      row.telefone || null,
-        email:         row.email || null,
-        parceiro:      row.parceiro || null,
-        ativo:         true,
-        dados_enriquecidos: false,
-      })
-      if (error) err++; else ok++
+
+      const cnpjLimpo = (row.cnpj || '').replace(/\D/g,'') || null
+      const idGrupo   = row.id_grupo ? parseInt(row.id_grupo) : null
+      const parceiro  = row.parceiro || null
+      const municipio = row.municipio || row.cidade || null
+      const uf        = row.uf || row.estado || null
+
+      // Produtos separados por | ex: "Alimentação|Vegas Plus"
+      const produtosArr  = row.produtos ? row.produtos.split('|').map((p: string) => p.trim()).filter(Boolean) : []
+      const prodIdsArr   = row.produto_ids ? row.produto_ids.split('|').map((p: string) => p.trim()).filter(Boolean) : []
+
+      let empresaId: string | null = null
+
+      if (importMode === 'substituir' && cnpjLimpo) {
+        // Verifica se já existe pelo CNPJ
+        const { data: existing } = await supabase
+          .from('empresas_conveniadas')
+          .select('id')
+          .eq('cnpj', cnpjLimpo)
+          .single()
+
+        if (existing?.id) {
+          // Atualiza a empresa existente
+          const { error } = await supabase.from('empresas_conveniadas')
+            .update({
+              nome_fantasia: nome.trim(),
+              razao_social:  row.razao_social || null,
+              id_grupo:      idGrupo,
+              municipio,
+              uf,
+              parceiro,
+              ativo:         true,
+            })
+            .eq('id', existing.id)
+
+          if (error) { err++; continue }
+          empresaId = existing.id
+
+          // Remove produtos antigos e reinserere
+          await supabase.from('empresas_produtos').delete().eq('empresa_id', empresaId)
+        }
+      }
+
+      // Se não encontrou existente ou modo inserir — cria nova
+      if (!empresaId) {
+        const { data, error } = await supabase.from('empresas_conveniadas').insert({
+          nome_fantasia:      nome.trim(),
+          razao_social:       row.razao_social || null,
+          cnpj:               cnpjLimpo,
+          id_grupo:           idGrupo,
+          municipio,
+          uf,
+          telefone:           row.telefone || null,
+          email:              row.email || null,
+          parceiro,
+          ativo:              true,
+          dados_enriquecidos: false,
+        }).select('id').single()
+
+        if (error || !data) { err++; continue }
+        empresaId = data.id
+      }
+
+      // Insere produtos
+      if (produtosArr.length > 0 && empresaId) {
+        await supabase.from('empresas_produtos').insert(
+          produtosArr.map((p: string, i: number) => ({
+            empresa_id:   empresaId,
+            produto_nome: p,
+            produto_id:   prodIdsArr[i] ? parseInt(prodIdsArr[i]) : null,
+          }))
+        )
+      }
+
+      ok++
     }
-    setImporting(false); setImportResult({ ok, err })
+
+    setImporting(false)
+    setImportResult({ ok, err })
     if (ok > 0) load()
   }
 
   const totalPages = Math.ceil(total / PER_PAGE)
+
+  // Contagens para os tabs
+  const labelStatus = filtroStatus === 'ativas' ? 'ativas' : filtroStatus === 'inativas' ? 'inativas' : 'no total'
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Empresas Conveniadas</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{total} empresas</p>
+          <p className="text-xs text-gray-400 mt-0.5">{total} empresas {labelStatus}</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowImport(true)} className="btn"><Upload size={14} /> Importar CSV</button>
@@ -246,20 +332,37 @@ export default function EmpresasPage() {
           <option value="">Todos os estados</option>
           {UFS.map(u => <option key={u} value={u}>{u}</option>)}
         </select>
-        <span className="text-xs text-gray-400 ml-auto">{empresas.length} resultados</span>
+
+        {/* ✅ Filtro ativas/inativas */}
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden ml-auto">
+          {(['ativas','inativas','todas'] as const).map(s => (
+            <button key={s} onClick={() => { setFiltroStatus(s); setPage(0) }}
+              className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                filtroStatus === s
+                  ? s === 'inativas' ? 'bg-red-500 text-white' : 'bg-[#185FA5] text-white'
+                  : 'bg-white text-gray-500 hover:bg-gray-50'
+              }`}>
+              {s === 'ativas' ? 'Ativas' : s === 'inativas' ? 'Inativas' : 'Todas'}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-xs text-gray-400">{empresas.length} resultados</span>
       </div>
 
       {/* Tabela */}
       <div className="card">
-        <div className="table-header grid" style={{ gridTemplateColumns:'1fr 140px 80px 140px 1fr 90px 60px' }}>
-          <span>Empresa</span><span>CNPJ</span><span>Grupo</span><span>Localidade</span><span>Produtos</span><span>Dados</span><span></span>
+        <div className="table-header grid" style={{ gridTemplateColumns:'1fr 140px 80px 140px 1fr 90px 80px 60px' }}>
+          <span>Empresa</span><span>CNPJ</span><span>Grupo</span><span>Localidade</span><span>Produtos</span><span>Dados</span><span>Status</span><span></span>
         </div>
         {loading && <div className="py-10 text-center text-sm text-gray-400">Carregando...</div>}
         {!loading && empresas.length === 0 && <div className="py-10 text-center text-sm text-gray-400">Nenhuma empresa encontrada.</div>}
         {!loading && empresas.map((e: any) => {
           const produtos: string[] = Array.from(new Set((e.empresas_produtos ?? []).map((p: any) => p.produto_nome as string)))
+          const isInativa = !e.ativo
           return (
-            <div key={e.id} className="table-row grid hover:bg-blue-50/30" style={{ gridTemplateColumns:'1fr 140px 80px 140px 1fr 90px 60px' }}>
+            <div key={e.id} className={`table-row grid hover:bg-blue-50/30 ${isInativa ? 'opacity-50' : ''}`}
+              style={{ gridTemplateColumns:'1fr 140px 80px 140px 1fr 90px 80px 60px' }}>
               <div>
                 <div className="text-sm font-medium text-gray-900 truncate">{e.nome_fantasia}</div>
                 {e.razao_social && <div className="text-xs text-gray-400 truncate">{e.razao_social}</div>}
@@ -282,12 +385,34 @@ export default function EmpresasPage() {
                   ? <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">✓ Completo</span>
                   : <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700">Pendente</span>}
               </span>
+
+              {/* ✅ Badge ativo/inativo */}
               <span className="self-center">
+                {e.ativo
+                  ? <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">● Ativa</span>
+                  : <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-600">● Inativa</span>}
+              </span>
+
+              <div className="self-center flex items-center gap-1">
                 <Link href={`/empresas/${e.id}`}
                   className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 transition-colors">
                   <svg width="12" height="12" viewBox="0 0 13 13" fill="none"><ellipse cx="6.5" cy="6.5" rx="5" ry="3.5" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="6.5" r="1.5" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
                 </Link>
-              </span>
+                {/* ✅ Botão desativar/reativar */}
+                <button
+                  onClick={() => setConfirmando({ id: e.id, nome: e.nome_fantasia, ativo: e.ativo })}
+                  disabled={togglingId === e.id}
+                  title={e.ativo ? 'Desativar empresa' : 'Reativar empresa'}
+                  className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-colors disabled:opacity-40 ${
+                    e.ativo
+                      ? 'border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50'
+                      : 'border-green-200 text-green-600 hover:bg-green-50'
+                  }`}>
+                  {togglingId === e.id
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : e.ativo ? <PowerOff size={11} /> : <Power size={11} />}
+                </button>
+              </div>
             </div>
           )
         })}
@@ -310,6 +435,42 @@ export default function EmpresasPage() {
         )}
       </div>
 
+      {/* ✅ Modal de confirmação desativar/reativar */}
+      {confirmando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setConfirmando(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${confirmando.ativo ? 'bg-red-100' : 'bg-green-100'}`}>
+                {confirmando.ativo ? <PowerOff size={18} className="text-red-600" /> : <Power size={18} className="text-green-600" />}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {confirmando.ativo ? 'Desativar empresa?' : 'Reativar empresa?'}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">{confirmando.nome}</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              {confirmando.ativo
+                ? 'A empresa ficará invisível nas buscas e novos atendimentos. Os atendimentos existentes não serão afetados.'
+                : 'A empresa voltará a aparecer nas buscas e poderá receber novos atendimentos.'}
+            </p>
+            <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+              <button onClick={() => setConfirmando(null)} className="btn">Cancelar</button>
+              <button
+                onClick={() => toggleAtivo(confirmando.id, confirmando.ativo)}
+                disabled={togglingId === confirmando.id}
+                className={`btn font-semibold ${confirmando.ativo ? 'bg-red-500 text-white border-red-500 hover:bg-red-600' : 'bg-green-500 text-white border-green-500 hover:bg-green-600'}`}>
+                {togglingId === confirmando.id
+                  ? 'Aguarde...'
+                  : confirmando.ativo ? 'Sim, desativar' : 'Sim, reativar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL NOVA EMPRESA */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -320,8 +481,6 @@ export default function EmpresasPage() {
               <button onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
             </div>
             <div className="p-6 space-y-5">
-
-              {/* Identificação */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Identificação</div>
                 <div className="grid grid-cols-2 gap-4">
@@ -363,7 +522,6 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Endereço */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Endereço</div>
                 <div className="grid grid-cols-2 gap-4">
@@ -392,7 +550,6 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Contato Geral */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Contato Geral</div>
                 <div className="grid grid-cols-2 gap-4">
@@ -407,7 +564,6 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Contato RH */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Contato RH</div>
                 <div className="grid grid-cols-3 gap-4">
@@ -426,7 +582,6 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Contato Financeiro */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Contato Financeiro</div>
                 <div className="grid grid-cols-3 gap-4">
@@ -445,7 +600,6 @@ export default function EmpresasPage() {
                 </div>
               </div>
 
-              {/* Produtos */}
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-3">Produtos Contratados</div>
                 <div className="flex flex-wrap gap-2 mb-3">
@@ -462,7 +616,7 @@ export default function EmpresasPage() {
                     <label className="form-label">IDs dos Produtos (na ordem acima, separados por vírgula)</label>
                     <input className="input font-mono" value={form.produto_ids}
                       onChange={e => setForm(f => ({...f, produto_ids: e.target.value}))}
-                      placeholder={`Ex: 14771, 14774, 14981`} />
+                      placeholder="Ex: 14771, 14774, 14981" />
                     <p className="text-xs text-gray-400 mt-1">
                       {form.produtos.map((p, i) => {
                         const ids = form.produto_ids.split(',').map(s => s.trim())
@@ -476,38 +630,6 @@ export default function EmpresasPage() {
               {saveError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{saveError}</p>}
               {saveOk && <p className="text-xs text-green-600 bg-green-50 px-3 py-2 rounded-lg border border-green-100">✓ Empresa cadastrada com sucesso!</p>}
 
-              {/* Modo de importação */}
-              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                <button onClick={() => setImportMode('substituir')}
-                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'substituir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                  🔄 Atualizar existentes + inserir novas
-                </button>
-                <button onClick={() => setImportMode('inserir')}
-                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'inserir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                  ➕ Apenas inserir novas
-                </button>
-              </div>
-              <p className="text-xs text-gray-400 -mt-2">
-                {importMode === 'substituir'
-                  ? 'Se o CNPJ já existir no sistema, atualiza os dados e produtos. Se não existir, cria nova empresa.'
-                  : 'Sempre cria novas empresas, mesmo que o CNPJ já exista.'}
-              </p>
-              <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
-              <button onClick={() => fileRef.current?.click()}
-                className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-2">
-                <Upload size={20} />
-                Clique para selecionar o arquivo CSV
-              </button>
-              {csvRows.length > 0 && (
-                <div className="px-4 py-3 bg-green-50 rounded-xl text-xs text-green-700 border border-green-100">
-                  ✓ {csvRows.length} empresas encontradas — pronto para importar
-                </div>
-              )}
-              {importResult && (
-                <div className={`px-4 py-3 rounded-xl text-xs border ${importResult.err===0?'bg-green-50 text-green-700 border-green-100':'bg-amber-50 text-amber-700 border-amber-100'}`}>
-                  ✓ {importResult.ok} importadas{importResult.err>0?` · ${importResult.err} com erro`:''}
-                </div>
-              )}
               <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                 <button onClick={() => setShowModal(false)} className="btn">Cancelar</button>
                 <button onClick={handleSave} disabled={saving || saveOk} className="btn-primary">
@@ -531,9 +653,29 @@ export default function EmpresasPage() {
             <div className="p-6 space-y-4">
               <div className="px-4 py-3 bg-blue-50 rounded-xl text-xs text-blue-700 border border-blue-100 space-y-1">
                 <div className="font-semibold">Formato esperado (separador ponto e vírgula):</div>
-                <div className="font-mono text-[10px] break-all">nome_fantasia;razao_social;cnpj;id_grupo;municipio;uf;telefone;email;parceiro</div>
-                <div className="text-blue-600 mt-1">Primeira linha = cabeçalho. Campos opcionais podem ficar em branco.</div>
+                <div className="font-mono text-[10px] break-all">nome_fantasia;razao_social;cnpj;id_grupo;municipio;uf;parceiro;produtos;produto_ids</div>
+                <div className="text-blue-600 mt-1">
+                  Múltiplos produtos separados por <strong>|</strong> ex: <span className="font-mono">Alimentação|Vegas Plus</span>
+                </div>
+                <div className="text-blue-600">Primeira linha = cabeçalho. Campos opcionais podem ficar em branco.</div>
               </div>
+
+              {/* Modo de importação */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button onClick={() => setImportMode('substituir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'substituir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  🔄 Atualizar existentes + inserir novas
+                </button>
+                <button onClick={() => setImportMode('inserir')}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${importMode === 'inserir' ? 'bg-[#185FA5] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  ➕ Apenas inserir novas
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 -mt-2">
+                {importMode === 'substituir'
+                  ? 'Se o CNPJ já existir no sistema, atualiza os dados e produtos. Se não existir, cria nova empresa.'
+                  : 'Sempre cria novas empresas, mesmo que o CNPJ já exista.'}
+              </p>
               <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleCSVFile} />
               <button onClick={() => fileRef.current?.click()}
                 className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors flex flex-col items-center justify-center gap-2">
