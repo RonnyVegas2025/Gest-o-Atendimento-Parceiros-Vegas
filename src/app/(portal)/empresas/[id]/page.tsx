@@ -133,22 +133,15 @@ export default function EmpresaDetalhePage() {
 
     try {
       const cnpjLimpo = empresa.cnpj.replace(/\D/g, '')
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
 
-      if (cnpjLimpo.length !== 14) {
-        setMsg({ text: `CNPJ inválido: "${empresa.cnpj}" (${cnpjLimpo.length} dígitos). Corrija o CNPJ primeiro.`, ok: false })
+      if (!res.ok) {
+        setMsg({ text: 'CNPJ não encontrado na Receita Federal.', ok: false })
         setLoadingCnpj(false)
         return
       }
 
-      // Usa rota interna Next.js como proxy (evita CORS)
-      const res = await fetch(`/api/cnpj/${cnpjLimpo}`)
       const data = await res.json()
-
-      if (!res.ok || data.error) {
-        setMsg({ text: 'CNPJ não encontrado na Receita Federal. Verifique se o número está correto.', ok: false })
-        setLoadingCnpj(false)
-        return
-      }
 
       // Monta apenas os campos que estão vazios no banco
       const updates: Record<string, string> = {}
@@ -248,18 +241,11 @@ export default function EmpresaDetalhePage() {
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
 
-              {/* CNPJ editável + botão atualizar */}
+              {/* CNPJ + botão atualizar */}
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">CNPJ</div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <EditableField
-                    label=""
-                    value={cnpjFmt ?? empresa.cnpj ?? null}
-                    onSave={v => {
-                      const limpo = v.replace(/\D/g, '')
-                      saveField('cnpj', limpo)
-                    }}
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-semibold font-mono text-gray-800">{cnpjFmt ?? '—'}</div>
                   {empresa.cnpj && (
                     <button
                       onClick={atualizarViaCnpj}
@@ -275,11 +261,19 @@ export default function EmpresaDetalhePage() {
               </div>
 
               <EditableField label="Razão Social" value={empresa.razao_social} onSave={v => saveField('razao_social', v)} />
-              <EditableField label="Nome Fantasia" value={empresa.nome_fantasia} onSave={v => saveField('nome_fantasia', v)} />
-              <EditableField label="ID Grupo" value={empresa.id_grupo ? String(empresa.id_grupo) : null} onSave={v => saveField('id_grupo', v)} />
+              <div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Nome Fantasia</div>
+                <div className="text-sm font-semibold text-gray-800">{empresa.nome_fantasia}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">ID Grupo</div>
+                <div className="text-sm font-semibold text-gray-800">{empresa.id_grupo ?? '—'}</div>
+              </div>
               <EditableSelect label="Parceiro" value={empresa.parceiro} options={parceiroOptions} onSave={v => saveField('parceiro', v)} />
-              <EditableField label="Município" value={empresa.municipio} onSave={v => saveField('municipio', v)} />
-              <EditableField label="UF" value={empresa.uf} onSave={v => saveField('uf', v)} />
+              <div>
+                <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Município/UF</div>
+                <div className="text-sm font-semibold text-gray-800">{empresa.municipio} · {empresa.uf}</div>
+              </div>
               <EditableField label="Situação CNPJ" value={empresa.situacao_cnpj} onSave={v => saveField('situacao_cnpj', v)} />
               <EditableField label="CNAE" value={empresa.cnae_principal} onSave={v => saveField('cnae_principal', v)} />
             </div>
@@ -297,7 +291,6 @@ export default function EmpresaDetalhePage() {
               <div>
                 <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1">Cidade/UF</div>
                 <div className="text-sm font-semibold text-gray-800">{empresa.municipio} · {empresa.uf}</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">Edite Município e UF nos Dados Cadastrais</div>
               </div>
             </div>
           </div>

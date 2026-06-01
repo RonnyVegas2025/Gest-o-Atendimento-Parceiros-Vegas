@@ -26,6 +26,43 @@ const STATUS_LABELS: Record<string, string> = {
   aguardando_retorno: 'Aguardando', finalizado: 'Finalizado', cancelado: 'Cancelado',
 }
 
+// Normaliza CNPJ removendo formatação para comparar
+function normalizeCnpj(v: string) {
+  return v.replace(/\D/g, '')
+}
+
+// Monta filtro OR para busca inteligente
+function buildSearchFilter(q: string): string {
+  const digits = normalizeCnpj(q)
+  const filters: string[] = [
+    `protocol.ilike.%${q}%`,
+    `company_legal_name.ilike.%${q}%`,
+    `company_name_free.ilike.%${q}%`,
+    `requester_name.ilike.%${q}%`,
+    `employee_name.ilike.%${q}%`,
+    `type_name.ilike.%${q}%`,
+  ]
+  // Se parece com CNPJ (só dígitos >= 3), busca sem formatação
+  if (digits.length >= 3) {
+    filters.push(`company_cnpj.ilike.%${digits}%`)
+  }
+  return filters.join(',')
+}
+
+function buildCompanyFilter(q: string): string {
+  const digits = normalizeCnpj(q)
+  const filters: string[] = [
+    `legal_name.ilike.%${q}%`,
+    `trade_name.ilike.%${q}%`,
+    `nome_fantasia.ilike.%${q}%`,
+    `razao_social.ilike.%${q}%`,
+  ]
+  if (digits.length >= 3) {
+    filters.push(`cnpj.ilike.%${digits}%`)
+  }
+  return filters.join(',')
+}
+
 export default function GlobalSearch() {
   const supabase = createClient()
   const router = useRouter()
@@ -50,31 +87,53 @@ export default function GlobalSearch() {
   }, [])
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return }
+    if (!query.trim() || query.trim().length < 2) { setResults([]); return }
     const timer = setTimeout(async () => {
       setLoading(true)
       const q = query.trim()
-      const [{ data: tickets }, { data: companies }] = await Promise.all([
-        supabase.from('tickets_with_details').select('id, protocol, status, company_legal_name, employee_name, type, description')
-          .or(`protocol.ilike.%${q}%,company_legal_name.ilike.%${q}%,employee_name.ilike.%${q}%,description.ilike.%${q}%`)
+      const digits = normalizeCnpj(q)
+
+      const [{ data: tickets }, { data: companies }, { data: conveniadas }] = await Promise.all([
+        // Atendimentos
+        supabase.from('tickets_with_details')
+          .select('id, protocol, status, company_legal_name, company_name_free, employee_name, type_name, type, description')
+          .or(`protocol.ilike.%${q}%,company_legal_name.ilike.%${q}%,company_name_free.ilike.%${q}%,requester_name.ilike.%${q}%,employee_name.ilike.%${q}%,type_name.ilike.%${q}%`)
           .limit(5),
-        supabase.from('companies').select('id, legal_name, trade_name, cnpj, city')
-          .or(`legal_name.ilike.%${q}%,trade_name.ilike.%${q}%,cnpj.ilike.%${q}%`)
+        // Empresas (companies)
+        supabase.from('companies')
+          .select('id, legal_name, trade_name, cnpj, city')
+          .or(`legal_name.ilike.%${q}%,trade_name.ilike.%${q}%,cnpj.ilike.%${digits.length>=3?digits:q}%`)
+          .limit(3),
+        // Empresas conveniadas
+        supabase.from('empresas_conveniadas')
+          .select('id, nome_fantasia, razao_social, cnpj, municipio, uf')
+          .or(`nome_fantasia.ilike.%${q}%,razao_social.ilike.%${q}%,cnpj.ilike.%${digits.length>=3?digits:q}%`)
           .limit(3),
       ])
+
       const ticketResults: Result[] = (tickets ?? []).map((t: any) => ({
         id: t.id, type: 'ticket',
-        title: t.protocol + ' — ' + (t.company_legal_name ?? 'Sem empresa'),
-        subtitle: t.employee_name ? 'Colaborador: ' + t.employee_name : t.description?.slice(0, 60) + '...',
+        title: t.protocol + ' — ' + (t.company_name_free ?? t.company_legal_name ?? 'Sem empresa'),
+        subtitle: t.type_name ?? t.type ?? '',
         href: '/atendimentos/' + t.id,
         status: t.status,
       }))
-      const companyResults: Result[] = (companies ?? []).map((c: any) => ({
-        id: c.id, type: 'company',
-        title: c.trade_name || c.legal_name,
-        subtitle: c.cnpj + (c.city ? ' — ' + c.city : ''),
-        href: '/empresas/' + c.id,
-      }))
+
+      const companyResults: Result[] = [
+        ...(companies ?? []).map((c: any) => ({
+          id: c.id, type: 'company' as const,
+          title: c.trade_name || c.legal_name,
+          subtitle: (c.cnpj ? c.cnpj + ' · ' : '') + (c.city ?? ''),
+          href: '/empresas/' + c.id,
+        })),
+        ...(conveniadas ?? []).map((c: any) => ({
+          id: c.id, type: 'company' as const,
+          title: c.nome_fantasia,
+          subtitle: (c.razao_social ? c.razao_social + ' · ' : '') + (c.cnpj?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') ?? '') + (c.municipio ? ' · ' + c.municipio + '/' + c.uf : ''),
+          href: '/empresas/' + c.id,
+        })),
+      ].slice(0, 5)
+
       setResults([...ticketResults, ...companyResults])
       setSelected(0)
       setLoading(false)
@@ -106,13 +165,12 @@ export default function GlobalSearch() {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4">
       <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => { setOpen(false); setQuery('') }} />
       <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-        {/* Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
           <Search size={16} className="text-gray-400 flex-shrink-0" />
           <input
             ref={inputRef}
             className="flex-1 text-sm bg-transparent outline-none text-gray-900 placeholder-gray-400"
-            placeholder="Buscar por protocolo, empresa, colaborador..."
+            placeholder="Protocolo, empresa, CNPJ, razão social, fantasia..."
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -121,19 +179,20 @@ export default function GlobalSearch() {
           <kbd className="text-[10px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">Esc</kbd>
         </div>
 
-        {/* Results */}
         <div className="max-h-80 overflow-y-auto">
           {loading && (
             <div className="px-4 py-6 text-center text-sm text-gray-400">Buscando...</div>
           )}
-          {!loading && query && results.length === 0 && (
+          {!loading && query.length >= 2 && results.length === 0 && (
             <div className="px-4 py-6 text-center text-sm text-gray-400">Nenhum resultado para "{query}"</div>
           )}
-          {!loading && !query && (
-            <div className="px-4 py-6 text-center text-sm text-gray-400">Digite para buscar atendimentos e empresas</div>
+          {!loading && query.length < 2 && (
+            <div className="px-4 py-6 text-center text-sm text-gray-400">
+              Digite pelo menos 2 caracteres — busca por protocolo, empresa, CNPJ ou razão social
+            </div>
           )}
           {results.map((r, i) => (
-            <button key={r.id} onClick={() => navigate(r.href)}
+            <button key={r.id + i} onClick={() => navigate(r.href)}
               className={cn('w-full text-left px-4 py-3 flex items-start gap-3 transition-colors border-b border-gray-50 last:border-0',
                 i === selected ? 'bg-blue-50' : 'hover:bg-gray-50')}>
               <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
@@ -166,4 +225,3 @@ export default function GlobalSearch() {
     </div>
   )
 }
-

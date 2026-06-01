@@ -32,6 +32,8 @@ const PRIORITY_LABELS: Record<string, string> = {
 interface TicketType {
   id: string
   name: string
+  category: string | null
+  subcategory: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -44,6 +46,7 @@ export default function NovoAtendimentoPage() {
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
+  const [parceiros, setParceiros] = useState<{id:string;name:string}[]>([])
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([])
   const [filtered, setFiltered] = useState<Company[]>([])
   const [companySearch, setCompanySearch] = useState('')
@@ -54,10 +57,15 @@ export default function NovoAtendimentoPage() {
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // ✅ Estado para capturar URLs das imagens coladas no PasteTextarea
+  const [pasteImageUrls, setPasteImageUrls] = useState<string[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string>('00000000-0000-0000-0000-000000000001')
+
   const [form, setForm] = useState({
     requester_name: '',
     employee_name:  '',
     attendant_id:   '',
+    parceiro_id:    '',
     type_id:        '',
     department:     'comercial',
     priority:       'media',
@@ -66,14 +74,39 @@ export default function NovoAtendimentoPage() {
   })
 
   useEffect(() => {
-    supabase.from('companies').select('id, legal_name, trade_name, cnpj')
-      .eq('status', 'ativa').order('legal_name')
-      .then(({ data }) => {
-        setCompanies((data as Company[]) ?? [])
-        setFiltered((data as Company[]) ?? [])
-      })
+    // Busca usuário logado e cruza com attendants pelo email
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase
+        .from('attendants')
+        .select('id')
+        .eq('email', user.email ?? '')
+        .maybeSingle()
+      if (data?.id) {
+        setCurrentUserId(data.id)
+      } else {
+        // fallback: usa o sistema se não encontrar attendant
+        setCurrentUserId('aaaaaaaa-0000-0000-0000-000000000001')
+      }
+    })
+
+    Promise.all([
+      supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
+      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
+    ]).then(([{ data: comp }, { data: conv }]) => {
+      const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
+      const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
+      const all = [...fromCompanies, ...fromConveniadas]
+      setCompanies(all as any)
+      setFiltered(all as any)
+    })
+
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
+
+    supabase.from('partners').select('id, name').order('name')
+      .then(({ data }) => setParceiros((data as any[]) ?? []))
+
     supabase.from('ticket_types').select('*').eq('active', true).order('name')
       .then(({ data }) => {
         const types = (data as TicketType[]) ?? []
@@ -81,8 +114,8 @@ export default function NovoAtendimentoPage() {
         if (types.length > 0) {
           setForm(f => ({
             ...f,
-            type_id:  types[0].id,
-            priority: types[0].priority,
+            type_id:   types[0].id,
+            priority:  types[0].priority,
             sla_hours: types[0].sla_hours,
           }))
         }
@@ -90,13 +123,15 @@ export default function NovoAtendimentoPage() {
   }, [])
 
   useEffect(() => {
-    if (!companySearch) { setFiltered(companies); return }
+    if (!companySearch || companySearch.length < 2) { setFiltered([]); return }
     const q = companySearch.toLowerCase()
-    setFiltered(companies.filter(c =>
-      c.legal_name.toLowerCase().includes(q) ||
+    const digits = companySearch.replace(/\D/g, '')
+    const results = companies.filter((c: any) =>
+      (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
-      c.cnpj.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
-    ))
+      (digits.length >= 3 && (c.cnpj ?? '').includes(digits))
+    )
+    setFiltered(results)
   }, [companySearch, companies])
 
   function set(field: string, value: string) {
@@ -124,31 +159,57 @@ export default function NovoAtendimentoPage() {
   async function handleSubmit(e: React.FormEvent, isDraft = false) {
     e.preventDefault()
     setError('')
-    if (mode === 'full' && !selectedCompany) { setError('Selecione uma empresa.'); return }
+    if (mode === 'full' && !selectedCompany && !companySearch.trim()) { setError('Selecione ou digite o nome de uma empresa.'); return }
     if (!form.description.trim()) { setError('Descricao e obrigatoria.'); return }
     setLoading(true)
 
     const selectedType = ticketTypes.find(t => t.id === form.type_id)
     const status = isDraft ? 'rascunho' : 'aberto'
+    const parceiroSelecionado = parceiros.find(p => p.id === form.parceiro_id)
 
     const payload: Record<string, unknown> = {
-      company_id:     selectedCompany?.id ?? null,
-      requester_name: form.requester_name || 'Nao informado',
-      employee_name:  form.employee_name || null,
-      attendant_id:   form.attendant_id || null,
-      type:           'outros',
-      description:    selectedType ? '[' + selectedType.name + '] ' + form.description : form.description,
-      department:     form.department,
-      priority:       form.priority,
+      company_id:         selectedCompany?.id ?? null,
+      company_name_free:  !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
+      requester_name:     form.requester_name || 'Nao informado',
+      employee_name:      form.employee_name || null,
+      attendant_id:       form.attendant_id || null,
+      parceiro_id:        form.parceiro_id || null,
+      parceiro:           parceiroSelecionado?.name ?? null,
+      type:               'outros',
+      type_name:          selectedType?.name ?? null,
+      description:        form.description,
+      department:         form.department,
+      priority:           form.priority,
       status,
-      protocol:       '',
-      created_by:     '00000000-0000-0000-0000-000000000001',
+      protocol:           '',
+      created_by:         currentUserId,
+      // ✅ Salva as URLs das imagens coladas na descrição
+      description_images: pasteImageUrls.length > 0 ? pasteImageUrls : null,
     }
 
     const { data, error: err } = await supabase
       .from('tickets').insert(payload).select('id, protocol').single()
 
     if (err) { setError(err.message); setLoading(false); return }
+
+    // ✅ Upload dos arquivos anexados (seção de Anexos)
+    if (files.length > 0 && data?.id) {
+      for (const file of files) {
+        const ext = file.name.split('.').pop() ?? 'bin'
+        const path = `tickets/${data.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+        const { error: upErr } = await supabase.storage.from('atendimentos').upload(path, file)
+        if (!upErr) {
+          const { data: urlData } = supabase.storage.from('atendimentos').getPublicUrl(path)
+          await supabase.from('ticket_attachments').insert({
+            ticket_id: data.id,
+            file_name: file.name,
+            file_url:  urlData.publicUrl,
+            file_size: file.size,
+            file_type: file.type,
+          })
+        }
+      }
+    }
 
     setLoading(false)
     router.push('/atendimentos/' + data.id)
@@ -210,7 +271,10 @@ export default function NovoAtendimentoPage() {
                 {showDropdown && !selectedCompany && companySearch && (
                   <div className="border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto z-10 relative">
                     {filtered.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-gray-400">Nenhuma empresa encontrada</div>
+                      <div className="px-4 py-3 text-sm text-gray-400">
+                        <div className="text-gray-500 mb-1">Nenhuma empresa encontrada</div>
+                        {isPre && <div className="text-xs text-amber-600">O nome digitado será salvo como está. Complete o cadastro depois em Empresas.</div>}
+                      </div>
                     ) : filtered.slice(0, 6).map(c => (
                       <button key={c.id} type="button"
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
@@ -240,6 +304,13 @@ export default function NovoAtendimentoPage() {
                     {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                   </select>
                 </div>
+                <div className="form-group col-span-2">
+                  <label className="form-label">Parceiro{isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
+                  <select className="select" value={form.parceiro_id} onChange={e => set('parceiro_id', e.target.value)}>
+                    <option value="">Selecione o parceiro...</option>
+                    {parceiros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -249,16 +320,28 @@ export default function NovoAtendimentoPage() {
             <div className="card-header"><span className="card-title">Classificacao</span></div>
             <div className="card-body space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                {/* Tipo — carrega do banco */}
                 <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
                   <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
                     <option value="">Selecione o tipo...</option>
-                    {ticketTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    {(() => {
+                      const grouped: Record<string, typeof ticketTypes> = {}
+                      ticketTypes.forEach(t => {
+                        const cat = (t as any).category || 'Geral'
+                        if (!grouped[cat]) grouped[cat] = []
+                        grouped[cat].push(t)
+                      })
+                      return Object.entries(grouped).map(([cat, items]) => (
+                        <optgroup key={cat} label={cat}>
+                          {items.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {(t as any).subcategory ? `${(t as any).subcategory} › ` : ''}{t.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))
+                    })()}
                   </select>
-                  {/* Preview SLA e prioridade automaticos */}
                   {selectedType && (
                     <div className="flex items-center gap-3 mt-2">
                       <span className={cn('badge', PRIORITY_COLORS[selectedType.priority])}>
@@ -280,7 +363,6 @@ export default function NovoAtendimentoPage() {
                   </select>
                 </div>
 
-                {/* Prioridade — preenchida automaticamente mas editavel */}
                 <div className="form-group">
                   <label className="form-label">Prioridade <span className="text-gray-400 font-normal">(ajustar se necessario)</span></label>
                   <select className="select" value={form.priority} onChange={e => set('priority', e.target.value)}>
@@ -293,13 +375,18 @@ export default function NovoAtendimentoPage() {
 
               <div className="form-group">
                 <label className="form-label">Descricao *</label>
+                {/* ✅ onImagesChange agora captura as URLs corretamente */}
                 <PasteTextarea
                   value={form.description}
                   onChange={v => set('description', v)}
+                  onImagesChange={urls => setPasteImageUrls(urls)}
                   placeholder="Cole aqui a mensagem do WhatsApp, ou use Ctrl+V para colar prints..."
                   rows={4}
                   required
                 />
+                {pasteImageUrls.length > 0 && (
+                  <p className="text-xs text-green-600 mt-1">✓ {pasteImageUrls.length} imagem(ns) prontas para salvar</p>
+                )}
               </div>
             </div>
           </div>
