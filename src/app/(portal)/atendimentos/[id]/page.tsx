@@ -479,6 +479,19 @@ export default function TicketDetailPage() {
                   <div><div className="text-xs text-gray-400 mb-0.5">Atendente</div><div className="text-sm font-medium text-gray-900">{(ticket as any).attendant_name ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? (ticket as any).parceiro ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Prioridade</div><div className="text-sm font-medium text-gray-900">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</div></div>
+                  {(ticket as any).produto_nome && (
+                    <div className="col-span-2">
+                      <div className="text-xs text-gray-400 mb-0.5">Produto do atendimento</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900">{(ticket as any).produto_nome}</span>
+                        {(ticket as any).produto_id && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100">
+                            ID {(ticket as any).produto_id}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 mb-2">Descricao inicial</div>
@@ -577,7 +590,7 @@ export default function TicketDetailPage() {
                         ) : (
                           <div className="text-sm text-gray-600 italic">{item.action}</div>
                         )}
-                        {elapsed && elapsed > 0 && (
+                        {elapsed && elapsed > 60 && (
                           <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
                             <Clock size={10} /><span>Tempo nesta etapa: {formatDuration(elapsed)}</span>
                           </div>
