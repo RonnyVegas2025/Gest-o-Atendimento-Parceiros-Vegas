@@ -59,6 +59,7 @@ export default function NovoAtendimentoPage() {
 
   // ✅ Estado para capturar URLs das imagens coladas no PasteTextarea
   const [pasteImageUrls, setPasteImageUrls] = useState<string[]>([])
+  const [empresaProdutos, setEmpresaProdutos] = useState<{empresa_id:string;produto_id:number|null;produto_nome:string}[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>('00000000-0000-0000-0000-000000000001')
 
   const [form, setForm] = useState({
@@ -91,8 +92,10 @@ export default function NovoAtendimentoPage() {
 
     Promise.all([
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
-      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj').eq('ativo', true).order('nome_fantasia')
-    ]).then(([{ data: comp }, { data: conv }]) => {
+      supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj, id_grupo').eq('ativo', true).order('nome_fantasia'),
+      supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome')
+    ]).then(([{ data: comp }, { data: conv }, { data: prods }]) => {
+      setEmpresaProdutos((prods as any[]) ?? [])
       const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
       const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
       const all = [...fromCompanies, ...fromConveniadas]
@@ -125,13 +128,19 @@ export default function NovoAtendimentoPage() {
     if (!companySearch || companySearch.length < 2) { setFiltered([]); return }
     const q = companySearch.toLowerCase()
     const digits = companySearch.replace(/\D/g, '')
+    // Busca por produto ID — encontra empresas que têm aquele produto
+    const produtoIdMatch = /^\d+$/.test(companySearch.trim()) && companySearch.trim().length >= 3
+    const empresasComProduto = produtoIdMatch
+      ? empresaProdutos.filter(p => String(p.produto_id) === companySearch.trim()).map(p => p.empresa_id)
+      : []
     const results = companies.filter((c: any) =>
       (c.legal_name ?? '').toLowerCase().includes(q) ||
       (c.trade_name ?? '').toLowerCase().includes(q) ||
-      (digits.length >= 3 && (c.cnpj ?? '').includes(digits))
+      (digits.length >= 3 && (c.cnpj ?? '').replace(/\D/g,'').includes(digits)) ||
+      empresasComProduto.includes(c.id)
     )
     setFiltered(results)
-  }, [companySearch, companies])
+  }, [companySearch, companies, empresaProdutos])
 
   function set(field: string, value: string) {
     setForm(p => ({ ...p, [field]: value }))
@@ -210,6 +219,22 @@ export default function NovoAtendimentoPage() {
       }
     }
 
+    // ✅ Cria primeiro registro na timeline automaticamente com a descrição
+    if (!isDraft && data?.id) {
+      const deptLabel = ALL_DEPARTMENTS.find(d => d.value === form.department)?.label ?? form.department
+      await supabase.from('ticket_history').insert({
+        ticket_id: data.id,
+        action: `[${deptLabel} → Em andamento] ${form.description}`,
+        observation: form.description,
+        from_status: 'aberto',
+        to_status: 'em_andamento',
+        user_id: currentUserId,
+        elapsed_seconds: 0,
+      })
+      // Atualiza status para em_andamento
+      await supabase.from('tickets').update({ status: 'em_andamento' }).eq('id', data.id)
+    }
+
     setLoading(false)
     router.push('/atendimentos/' + data.id)
   }
@@ -279,7 +304,12 @@ export default function NovoAtendimentoPage() {
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
                         onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
                         <div className="text-sm font-medium text-gray-900">{c.trade_name || c.legal_name}</div>
-                        <div className="text-xs text-gray-400 font-mono">{c.cnpj}</div>
+                        <div className="flex gap-3 text-xs text-gray-400">
+                          <span className="font-mono">{c.cnpj ? c.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '—'}</span>
+                          {empresaProdutos.filter(p => p.empresa_id === c.id).map(p => (
+                            <span key={p.produto_id} className="text-indigo-500">ID {p.produto_id} · {p.produto_nome}</span>
+                          ))}
+                        </div>
                       </button>
                     ))}
                   </div>
