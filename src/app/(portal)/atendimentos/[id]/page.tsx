@@ -190,6 +190,35 @@ function CadastrarEmpresaModal({
   )
 }
 
+
+// ─── Componente produtos da empresa na sidebar ───────────────────────────────
+function EmpresaProdutos({ empresaId }: { empresaId: string }) {
+  const supabase = createClient()
+  const [produtos, setProdutos] = useState<{produto_nome:string;produto_id:number|null}[]>([])
+
+  useEffect(() => {
+    supabase.from('empresas_produtos').select('produto_nome, produto_id')
+      .eq('empresa_id', empresaId)
+      .then(({ data }) => setProdutos((data as any[]) ?? []))
+  }, [empresaId])
+
+  if (produtos.length === 0) return null
+
+  return (
+    <div className="border-t border-gray-100 pt-2 mt-2">
+      <div className="text-[10px] font-semibold text-gray-400 uppercase mb-1.5">Produtos</div>
+      <div className="space-y-1">
+        {produtos.map((p, i) => (
+          <div key={i} className="flex justify-between text-xs">
+            <span className="text-gray-600">{p.produto_nome}</span>
+            {p.produto_id && <span className="font-mono text-indigo-500">ID {p.produto_id}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Página principal ────────────────────────────────────────────────────────
 export default function TicketDetailPage() {
   const params = useParams()
@@ -667,8 +696,13 @@ export default function TicketDetailPage() {
             <div className="card-body space-y-2">
               <div className="flex justify-between text-xs"><span className="text-gray-400">Nome</span><span className="font-medium text-gray-700 text-right max-w-[150px] truncate">{companyDisplay}</span></div>
               {semCadastro && <div className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">Empresa sem cadastro formal</div>}
+              <div className="flex justify-between text-xs"><span className="text-gray-400">CNPJ</span><span className="font-medium text-gray-700 font-mono text-right">{(ticket as any).company_cnpj ? (ticket as any).company_cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '—'}</span></div>
               <div className="flex justify-between text-xs"><span className="text-gray-400">Cidade</span><span className="font-medium text-gray-700">{(ticket as any).company_city && (ticket as any).company_state ? (ticket as any).company_city + '/' + (ticket as any).company_state : '—'}</span></div>
               <div className="flex justify-between text-xs"><span className="text-gray-400">Parceiro</span><span className="font-medium text-gray-700">{ticket.partner_name ?? (ticket as any).parceiro ?? '—'}</span></div>
+              {/* Produtos da empresa */}
+              {ticket.company_id && (
+                <EmpresaProdutos empresaId={ticket.company_id} />
+              )}
             </div>
           </div>
         </div>
