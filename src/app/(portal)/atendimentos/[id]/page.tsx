@@ -553,9 +553,11 @@ export default function TicketDetailPage() {
                             <Clock size={10} /><span>Tempo nesta etapa: {formatDuration(elapsed)}</span>
                           </div>
                         )}
-                        <div className="flex gap-3 mt-1 text-xs text-gray-400">
-                          <span className="font-medium">{userName}</span>
-                          <span title={formatDate(item.created_at)}>{timeAgo(item.created_at)}</span>
+                        <div className="flex gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+                          <span className="font-medium text-gray-600">{userName}</span>
+                          <span>·</span>
+                          <span className="font-medium">{formatDate(item.created_at)}</span>
+                          <span className="text-gray-300">({timeAgo(item.created_at)})</span>
                         </div>
                       </li>
                     )
