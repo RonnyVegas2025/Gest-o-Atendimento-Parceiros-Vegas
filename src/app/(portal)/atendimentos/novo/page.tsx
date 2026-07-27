@@ -67,12 +67,16 @@ export default function NovoAtendimentoPage() {
     employee_name:  '',
     attendant_id:   '',
     parceiro_id:    '',
+    produto_id:     '',
+    produto_nome:   '',
     type_id:        '',
     department:     'comercial',
     priority:       'media',
     sla_hours:      8,
     description:    '',
   })
+  // Produtos da empresa selecionada
+  const [produtosEmpresa, setProdutosEmpresa] = useState<{produto_id:number|null;produto_nome:string}[]>([])
 
   useEffect(() => {
     // Busca usuário logado na tabela users_profile pelo email
@@ -185,6 +189,8 @@ export default function NovoAtendimentoPage() {
       parceiro:           parceiroSelecionado?.name ?? null,
       type:               'outros',
       type_name:          selectedType?.name ?? null,
+      produto_id:         form.produto_id ? parseInt(form.produto_id) : null,
+      produto_nome:       form.produto_nome || null,
       description:        form.description,
       department:         form.department,
       priority:           form.priority,
@@ -302,7 +308,16 @@ export default function NovoAtendimentoPage() {
                     ) : filtered.slice(0, 6).map(c => (
                       <button key={c.id} type="button"
                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                        onClick={() => { setSelectedCompany(c); setCompanySearch(c.trade_name || c.legal_name); setShowDropdown(false) }}>
+                        onClick={() => {
+                          setSelectedCompany(c)
+                          setCompanySearch(c.trade_name || c.legal_name)
+                          setShowDropdown(false)
+                          // Carrega produtos da empresa selecionada
+                          const prods = empresaProdutos.filter((p: any) => p.empresa_id === c.id)
+                          setProdutosEmpresa(prods)
+                          set('produto_id', '')
+                          set('produto_nome', '')
+                        }}>
                         <div className="text-sm font-medium text-gray-900">{c.trade_name || c.legal_name}</div>
                         <div className="flex gap-3 text-xs text-gray-400">
                           <span className="font-mono">{c.cnpj ? c.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '—'}</span>
@@ -340,6 +355,26 @@ export default function NovoAtendimentoPage() {
                     {parceiros.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
+
+                {/* ✅ Produto relacionado ao atendimento */}
+                {produtosEmpresa.length > 0 && (
+                  <div className="form-group col-span-2">
+                    <label className="form-label">Produto relacionado{isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
+                    <select className="select" value={form.produto_id}
+                      onChange={e => {
+                        const prod = produtosEmpresa.find(p => String(p.produto_id) === e.target.value)
+                        set('produto_id', e.target.value)
+                        set('produto_nome', prod?.produto_nome ?? '')
+                      }}>
+                      <option value="">Selecione o produto...</option>
+                      {produtosEmpresa.map((p, i) => (
+                        <option key={i} value={String(p.produto_id)}>
+                          {p.produto_id ? `ID ${p.produto_id} · ` : ''}{p.produto_nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
