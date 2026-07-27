@@ -77,7 +77,7 @@ export default function EmpresasPage() {
 
     if (busca.trim()) {
       const digits = busca.trim().replace(/\D/g,'')
-      if (digits.length >= 8) {
+      if (digits.length >= 4) {
         query = query.ilike('cnpj', `%${digits}%`)
       } else if (/^\d+$/.test(busca.trim())) {
         const prodIds = await supabase.from('empresas_produtos').select('empresa_id').eq('produto_id', parseInt(busca.trim()))
@@ -142,6 +142,22 @@ export default function EmpresasPage() {
     if (!form.nome_fantasia.trim()) { setSaveError('Nome fantasia é obrigatório'); return }
     setSaving(true); setSaveError('')
     const cnpjLimpo = form.cnpj.replace(/\D/g,'') || null
+
+    // ✅ Verifica se CNPJ já existe no banco
+    if (cnpjLimpo && cnpjLimpo.length === 14) {
+      const { data: existing } = await supabase
+        .from('empresas_conveniadas')
+        .select('id, nome_fantasia, ativo')
+        .eq('cnpj', cnpjLimpo)
+        .maybeSingle()
+      if (existing) {
+        const status = existing.ativo ? 'ativa' : 'inativa'
+        setSaveError(`⚠️ CNPJ já cadastrado! Empresa encontrada: "${existing.nome_fantasia}" (${status}). Verifique se não é duplicata antes de continuar.`)
+        setSaving(false)
+        return
+      }
+    }
+
     const { data, error } = await supabase.from('empresas_conveniadas').insert({
       nome_fantasia:       form.nome_fantasia.trim(),
       razao_social:        form.razao_social.trim() || null,
