@@ -100,7 +100,6 @@ export default function NovoAtendimentoPage() {
       supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome').limit(5000)
     ]).then(([{ data: comp }, { data: conv }, { data: prods }]) => {
       setEmpresaProdutos((prods as any[]) ?? [])
-      console.log('produtos carregados:', prods?.length)
       const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
       const fromConveniadas = (conv ?? []).map((c: any) => ({ id: c.id, legal_name: c.nome_fantasia, trade_name: c.razao_social || c.nome_fantasia, cnpj: c.cnpj }))
       const all = [...fromCompanies, ...fromConveniadas]
