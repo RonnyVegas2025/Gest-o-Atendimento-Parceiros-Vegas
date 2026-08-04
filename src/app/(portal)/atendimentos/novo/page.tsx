@@ -97,7 +97,7 @@ export default function NovoAtendimentoPage() {
     Promise.all([
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
       supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj, id_grupo').eq('ativo', true).order('nome_fantasia'),
-      supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome')
+      supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome').limit(5000)
     ]).then(([{ data: comp }, { data: conv }, { data: prods }]) => {
       setEmpresaProdutos((prods as any[]) ?? [])
       const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
