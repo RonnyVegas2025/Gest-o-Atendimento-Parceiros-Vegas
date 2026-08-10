@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
 import { STATUS_OCORRENCIA, IMPACTO_OCORRENCIA } from '@/lib/constants'
@@ -151,7 +151,10 @@ export default function OcorrenciasPage() {
           const imp = o.impacto ? IMPACTO_OCORRENCIA[o.impacto] : null
           return (
             <Link key={o.id} href={`/ocorrencias/${o.id}`} className="table-row grid hover:bg-blue-50/30" style={{ gridTemplateColumns: COLS }}>
-              <span className="font-mono text-xs text-indigo-600 self-center truncate">{o.protocolo || '—'}</span>
+              <span className="font-mono text-xs text-indigo-600 self-center truncate flex items-center gap-1">
+                {o.solucao && <span title="Solução registrada" aria-label="Solução registrada" className="text-green-600 flex-shrink-0"><Wrench size={11} /></span>}
+                {o.protocolo || '—'}
+              </span>
               <span className="text-xs text-gray-500 self-center">{fmtDate(o.data_ocorrencia)}</span>
               <span className="text-xs text-gray-600 self-center truncate">{deptLabels[o.department] ?? o.department}</span>
               <div className="self-center min-w-0">
