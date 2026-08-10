@@ -368,25 +368,27 @@ export default function NovoAtendimentoPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="form-group relative" ref={reqBoxRef}>
+                <div className="form-group">
                   <label className="form-label">Solicitante (RH){isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
-                  <input className="input" placeholder="Nome do responsavel" autoComplete="off"
-                    value={form.requester_name}
-                    onChange={e => { set('requester_name', e.target.value); setShowReqDropdown(true) }}
-                    onFocus={() => setShowReqDropdown(true)}
-                    onKeyDown={e => { if (e.key === 'Escape') setShowReqDropdown(false) }} />
-                  {showReqDropdown && reqSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 z-20 border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto">
-                      {reqSuggestions.map(c => (
-                        <button key={c.id} type="button"
-                          className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
-                          onClick={() => { set('requester_name', c.nome); setShowReqDropdown(false) }}>
-                          <span className="text-sm font-medium text-gray-900">{c.nome}</span>
-                          {c.cargo && <span className="text-xs text-gray-400 ml-2">{c.cargo}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div className="relative" ref={reqBoxRef}>
+                    <input className="input" placeholder="Nome do responsavel" autoComplete="off"
+                      value={form.requester_name}
+                      onChange={e => { set('requester_name', e.target.value); setShowReqDropdown(true) }}
+                      onFocus={() => setShowReqDropdown(true)}
+                      onKeyDown={e => { if (e.key === 'Escape') setShowReqDropdown(false) }} />
+                    {showReqDropdown && reqSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-30 border border-gray-200 rounded-xl shadow-lg bg-white max-h-48 overflow-y-auto">
+                        {reqSuggestions.map(c => (
+                          <button key={c.id} type="button"
+                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                            onClick={() => { set('requester_name', c.nome); setShowReqDropdown(false) }}>
+                            <span className="text-sm font-medium text-gray-900">{c.nome}</span>
+                            {c.cargo && <span className="text-xs text-gray-400 ml-2">{c.cargo}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Colaborador envolvido</label>
