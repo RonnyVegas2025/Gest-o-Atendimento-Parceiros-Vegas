@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { ArrowLeft, Check, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { STATUS_OCORRENCIA } from '@/lib/constants'
+import StatusHelp from '@/components/ocorrencias/StatusHelp'
 
 /*
  * DETALHE DA OCORRÊNCIA — todos os campos, imagens e edição de status.
@@ -17,14 +19,6 @@ const GRAVIDADE_CONFIG: Record<string, { label: string; badge: string; dot: stri
   baixa: { label: 'Baixa', badge: 'bg-green-50 text-green-700 border border-green-200', dot: 'bg-green-500' },
   media: { label: 'Média', badge: 'bg-amber-50 text-amber-700 border border-amber-200', dot: 'bg-amber-400' },
   alta:  { label: 'Alta',  badge: 'bg-red-50 text-red-700 border border-red-200',       dot: 'bg-red-500' },
-}
-
-const STATUS_OCORRENCIA: Record<string, { label: string; badge: string }> = {
-  aberta:     { label: 'Aberta',      badge: 'bg-blue-50 text-blue-700 border border-blue-200' },
-  em_analise: { label: 'Em análise',  badge: 'bg-amber-50 text-amber-700 border border-amber-200' },
-  resolvida:  { label: 'Resolvida',   badge: 'bg-green-100 text-green-800 border border-green-300' },
-  cancelada:  { label: 'Cancelada',   badge: 'bg-red-50 text-red-700 border border-red-200' },
-  reincidente:{ label: 'Reincidente', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
 }
 
 function fmtDate(d: string | null) {
@@ -183,10 +177,16 @@ export default function OcorrenciaDetailPage() {
             <div className="card-header"><span className="card-title">Status</span></div>
             <div className="card-body space-y-3">
               <div className="form-group">
-                <label className="form-label">Alterar status</label>
+                <div className="flex items-center gap-1.5">
+                  <span className="form-label">Alterar status</span>
+                  <StatusHelp />
+                </div>
                 <select className="select" value={novoStatus} onChange={e => setNovoStatus(e.target.value)}>
                   {Object.entries(STATUS_OCORRENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
                 </select>
+                {novoStatus && STATUS_OCORRENCIA[novoStatus] && (
+                  <p className="text-xs text-gray-500 mt-1.5">{STATUS_OCORRENCIA[novoStatus].descricao}</p>
+                )}
               </div>
               <p className="text-xs text-gray-400">
                 O registro nunca é excluído. Para encerrar sem tratativa, defina o status como <strong>Cancelada</strong>.

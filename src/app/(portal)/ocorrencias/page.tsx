@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { STATUS_OCORRENCIA } from '@/lib/constants'
+import StatusHelp from '@/components/ocorrencias/StatusHelp'
 
 /*
  * LISTA DE OCORRÊNCIAS. Schema assumido (`ocorrencias`): protocolo, department,
@@ -15,14 +17,6 @@ const GRAVIDADE_CONFIG: Record<string, { label: string; badge: string; dot: stri
   baixa: { label: 'Baixa', badge: 'bg-green-50 text-green-700 border border-green-200', dot: 'bg-green-500' },
   media: { label: 'Média', badge: 'bg-amber-50 text-amber-700 border border-amber-200', dot: 'bg-amber-400' },
   alta:  { label: 'Alta',  badge: 'bg-red-50 text-red-700 border border-red-200',       dot: 'bg-red-500' },
-}
-
-const STATUS_OCORRENCIA: Record<string, { label: string; badge: string }> = {
-  aberta:     { label: 'Aberta',      badge: 'bg-blue-50 text-blue-700 border border-blue-200' },
-  em_analise: { label: 'Em análise',  badge: 'bg-amber-50 text-amber-700 border border-amber-200' },
-  resolvida:  { label: 'Resolvida',   badge: 'bg-green-100 text-green-800 border border-green-300' },
-  cancelada:  { label: 'Cancelada',   badge: 'bg-red-50 text-red-700 border border-red-200' },
-  reincidente:{ label: 'Reincidente', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
 }
 
 const PERIODOS = [
@@ -118,10 +112,13 @@ export default function OcorrenciasPage() {
           <option value="media">Média</option>
           <option value="alta">Alta</option>
         </select>
-        <select className="select w-40" value={fStatus} onChange={e => setFStatus(e.target.value)}>
-          <option value="">Todos os status</option>
-          {Object.entries(STATUS_OCORRENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
-        </select>
+        <div className="inline-flex items-center gap-1.5">
+          <select className="select w-40" value={fStatus} onChange={e => setFStatus(e.target.value)}>
+            <option value="">Todos os status</option>
+            {Object.entries(STATUS_OCORRENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
+          </select>
+          <StatusHelp />
+        </div>
         <select className="select w-40" value={fPeriodo} onChange={e => setFPeriodo(e.target.value)}>
           {PERIODOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
         </select>
