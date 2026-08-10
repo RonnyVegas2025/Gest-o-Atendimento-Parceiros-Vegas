@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Check, Clock, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useDepartments } from '@/hooks/useDepartments'
 
 interface TicketType {
   id: string
@@ -10,6 +11,7 @@ interface TicketType {
   description: string | null
   category: string | null
   subcategory: string | null
+  department: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -34,12 +36,13 @@ const SLA_OPTIONS = [
 ]
 
 const EMPTY = {
-  name: '', description: '', category: '', subcategory: '',
+  name: '', description: '', category: '', subcategory: '', department: '',
   priority: 'media' as 'baixa' | 'media' | 'alta', sla_hours: 8
 }
 
 export default function TiposPage() {
   const supabase = createClient()
+  const { departments, loading: deptLoading } = useDepartments()
   const [types, setTypes]         = useState<TicketType[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -85,6 +88,7 @@ export default function TiposPage() {
     setForm({
       name: t.name, description: t.description ?? '',
       category: t.category ?? '', subcategory: t.subcategory ?? '',
+      department: t.department ?? '',
       priority: t.priority, sla_hours: t.sla_hours
     })
     setCategoryInput(t.category ?? '')
@@ -102,6 +106,7 @@ export default function TiposPage() {
       description: form.description || null,
       category:    categoryInput.trim() || null,
       subcategory: form.subcategory.trim() || null,
+      department:  form.department || null,
       priority:    form.priority,
       sla_hours:   form.sla_hours,
       updated_at:  new Date().toISOString(),
@@ -292,6 +297,17 @@ export default function TiposPage() {
                   value={form.subcategory}
                   onChange={e => setForm(f => ({ ...f, subcategory: e.target.value }))}
                 />
+              </div>
+
+              {/* Departamento (opcional) — permite classificar o tipo por departamento */}
+              <div className="form-group">
+                <label className="form-label">Departamento <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <select className="select" value={form.department}
+                  onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
+                  <option value="">Sem departamento (não classificado)</option>
+                  {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Ao definir, este tipo passa a aparecer só para o departamento escolhido no novo atendimento.</p>
               </div>
 
               {/* Nome */}
