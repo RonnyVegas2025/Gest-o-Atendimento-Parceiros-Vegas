@@ -41,14 +41,16 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-vg-bg">
-      {/* Faixa de gradiente institucional (3px) no topo da tela */}
-      <div className="h-[3px] w-full bg-vg-institucional" />
+      {/* Faixa de gradiente institucional (3px) — largura total da tela, acima de tudo */}
+      <div className="fixed top-0 inset-x-0 z-50 h-[3px] bg-vg-institucional" />
 
       <div className="flex flex-1 min-h-0">
         {/* Painel institucional (esquerda) — oculto no mobile */}
-        <aside className="hidden lg:flex lg:w-1/2 xl:w-[45%] flex-col justify-between bg-vg-brand-800 text-white p-12">
-          {/* Logo omitido: o PNG tem fundo branco opaco e viraria mancha sobre o painel escuro.
-              Reintroduzir quando houver variante monocromática/SVG transparente (seção 21). */}
+        <aside className="hidden lg:flex lg:w-1/2 xl:w-[45%] flex-col justify-end gap-8 bg-vg-brand-800 text-white p-12">
+          {/* Topo do painel fica vazio. Título + descrição agrupados na parte inferior,
+              logo acima do bloco de uso interno (referência: Agregados, seção 7).
+              Logo omitido: o PNG tem fundo branco opaco e viraria mancha sobre o fundo
+              escuro; reintroduzir com variante monocromática/SVG transparente (seção 21). */}
           <div className="max-w-md">
             <h1 className="font-display text-display-xl font-semibold leading-tight">
               {SYSTEM_NAME}
@@ -70,8 +72,8 @@ export default function LoginPage() {
         {/* Área de autenticação (direita) — fundo claro */}
         <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
           <div className="w-full max-w-sm">
-            <header className="mb-8">
-              <VegasLogo variant="completa" size={64} priority className="block" />
+            <header className="mb-8 text-center">
+              <VegasLogo variant="completa" size={130} priority className="block mx-auto" />
               <h2 className="mt-6 font-display text-h1 font-semibold text-vg-ink">
                 {SYSTEM_NAME}
               </h2>
