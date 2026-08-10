@@ -33,6 +33,7 @@ interface TicketType {
   name: string
   category: string | null
   subcategory: string | null
+  department: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -70,7 +71,7 @@ export default function NovoAtendimentoPage() {
     produto_id:     '',
     produto_nome:   '',
     type_id:        '',
-    department:     'comercial',
+    department:     '',
     priority:       'media',
     status:         'aberto',
     sla_hours:      8,
@@ -119,19 +120,9 @@ export default function NovoAtendimentoPage() {
     supabase.from('partners').select('id, name').order('name')
       .then(({ data }) => setParceiros((data as any[]) ?? []))
 
+    // Não pré-seleciona um tipo: o tipo agora depende do departamento escolhido.
     supabase.from('ticket_types').select('*').eq('active', true).order('name')
-      .then(({ data }) => {
-        const types = (data as TicketType[]) ?? []
-        setTicketTypes(types)
-        if (types.length > 0) {
-          setForm(f => ({
-            ...f,
-            type_id:   types[0].id,
-            priority:  types[0].priority,
-            sla_hours: types[0].sla_hours,
-          }))
-        }
-      })
+      .then(({ data }) => setTicketTypes((data as TicketType[]) ?? []))
   }, [])
 
   useEffect(() => {
@@ -192,6 +183,23 @@ export default function NovoAtendimentoPage() {
     setForm(p => ({ ...p, [field]: value }))
   }
 
+  // Tipos filtrados pelo departamento: os do departamento selecionado + os ainda
+  // não classificados (department IS NULL). Tipos de outros departamentos ficam ocultos.
+  const filteredTypes = useMemo(() => {
+    if (!form.department) return []
+    return ticketTypes.filter(t => t.department === form.department || !t.department)
+  }, [ticketTypes, form.department])
+
+  // Ao trocar de departamento: se o tipo já selecionado não pertence mais à lista
+  // filtrada, limpa a seleção do tipo e o SLA/prioridade derivados dele.
+  useEffect(() => {
+    if (!form.type_id) return
+    if (!filteredTypes.some(t => t.id === form.type_id)) {
+      setForm(f => ({ ...f, type_id: '', priority: 'media', sla_hours: 8 }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.department])
+
   function handleTypeChange(typeId: string) {
     const type = ticketTypes.find(t => t.id === typeId)
     if (type) {
@@ -214,6 +222,7 @@ export default function NovoAtendimentoPage() {
     e.preventDefault()
     setError('')
     if (mode === 'full' && !selectedCompany && !companySearch.trim()) { setError('Selecione ou digite o nome de uma empresa.'); return }
+    if (!form.department) { setError('Selecione o departamento.'); return }
     if (!form.description.trim()) { setError('Descricao e obrigatoria.'); return }
     setLoading(true)
 
@@ -446,13 +455,21 @@ export default function NovoAtendimentoPage() {
             <div className="card-body space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group col-span-2">
+                  <label className="form-label">Departamento *</label>
+                  <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading} required>
+                    <option value="">Selecione o departamento...</option>
+                    {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
-                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
-                    <option value="">Selecione o tipo...</option>
+                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} disabled={!form.department} required>
+                    <option value="">{!form.department ? 'Selecione o departamento primeiro' : 'Selecione o tipo...'}</option>
                     {(() => {
-                      const grouped: Record<string, typeof ticketTypes> = {}
-                      ticketTypes.forEach(t => {
-                        const cat = (t as any).category || 'Geral'
+                      const grouped: Record<string, TicketType[]> = {}
+                      filteredTypes.forEach(t => {
+                        const cat = t.category || 'Geral'
                         if (!grouped[cat]) grouped[cat] = []
                         grouped[cat].push(t)
                       })
@@ -460,7 +477,7 @@ export default function NovoAtendimentoPage() {
                         <optgroup key={cat} label={cat}>
                           {items.map(t => (
                             <option key={t.id} value={t.id}>
-                              {(t as any).subcategory ? `${(t as any).subcategory} › ` : ''}{t.name}
+                              {t.subcategory ? `${t.subcategory} › ` : ''}{t.name}
                             </option>
                           ))}
                         </optgroup>
@@ -479,13 +496,6 @@ export default function NovoAtendimentoPage() {
                       </span>
                     </div>
                   )}
-                </div>
-
-                <div className="form-group col-span-2">
-                  <label className="form-label">Departamento *</label>
-                  <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading}>
-                    {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
                 </div>
 
                 <div className="form-group">
