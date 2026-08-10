@@ -248,6 +248,9 @@ export default function AtendimentosPage() {
           <option value="marketing">Marketing</option>
           <option value="juridico">Juridico</option>
           <option value="logistica">Logistica</option>
+          <option value="ti_vegas">T.I Vegas</option>
+          <option value="ti_ifc">T.I IFC</option>
+          <option value="ti_swap">T.I Swap</option>
         </select>
         <select className="select w-40" value={attendant} onChange={e => setAttendant(e.target.value)}>
           <option value="">Todos os atend.</option>

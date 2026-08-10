@@ -12,6 +12,7 @@ const DEPT_LABELS: Record<string, string> = {
   comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
   operacional: 'Operacional', rede: 'Rede', marketing: 'Marketing',
   juridico: 'Juridico', logistica: 'Logistica',
+  ti_vegas: 'T.I Vegas', ti_ifc: 'T.I IFC', ti_swap: 'T.I Swap',
 }
 
 const STATUS_LABELS: Record<string, string> = {

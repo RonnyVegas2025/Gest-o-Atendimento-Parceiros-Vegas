@@ -24,6 +24,7 @@ const DEPT_LABELS: Record<string, string> = {
   comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
   operacional: 'Operacional', rede: 'Rede', marketing: 'Marketing',
   juridico: 'Juridico', logistica: 'Logistica',
+  ti_vegas: 'T.I Vegas', ti_ifc: 'T.I IFC', ti_swap: 'T.I Swap',
 }
 
 const EMPTY: { full_name: string; email: string; phone: string; role: 'gestor_master' | 'supervisor_adm' | 'atendimento'; department: string } = {
@@ -212,6 +213,9 @@ export default function UsuariosPage() {
                     <option value="marketing">Marketing</option>
                     <option value="juridico">Juridico</option>
                     <option value="logistica">Logistica</option>
+                    <option value="ti_vegas">T.I Vegas</option>
+                    <option value="ti_ifc">T.I IFC</option>
+                    <option value="ti_swap">T.I Swap</option>
                   </select>
                 </div>
               </div>
