@@ -2,15 +2,22 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { VegasLogo } from '@/components/brand/VegasLogo'
+import { Eye, EyeOff } from 'lucide-react'
+
+const APP_VERSION = 'v0.1.0'
+const SYSTEM_NAME = 'Gestão de Atendimento Parceiros'
 
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Lógica de autenticação inalterada — apenas a apresentação foi refeita.
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -27,64 +34,119 @@ export default function LoginPage() {
     window.location.href = '/dashboard'
   }
 
+  const fieldClass =
+    'w-full px-3 py-2.5 text-body rounded-[10px] bg-vg-surface text-vg-ink ' +
+    'placeholder-vg-ink-secondary border border-vg-border-field ' +
+    'focus:outline-none focus:ring-2 focus:ring-vg-brand-500 focus:border-vg-brand-500 transition-colors'
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#185FA5] text-white text-xl font-bold mb-4">
-            V
+    <div className="min-h-screen flex flex-col bg-vg-bg">
+      {/* Faixa de gradiente institucional (3px) — largura total da tela, acima de tudo */}
+      <div className="fixed top-0 inset-x-0 z-50 h-[3px] bg-vg-institucional" />
+
+      <div className="flex flex-1 min-h-0">
+        {/* Painel institucional (esquerda) — oculto no mobile */}
+        <aside className="hidden lg:flex lg:w-1/2 xl:w-[45%] flex-col justify-end gap-8 bg-vg-brand-800 text-white p-12">
+          {/* Topo do painel fica vazio. Título + descrição agrupados na parte inferior,
+              logo acima do bloco de uso interno (referência: Agregados, seção 7).
+              Logo omitido: o PNG tem fundo branco opaco e viraria mancha sobre o fundo
+              escuro; reintroduzir com variante monocromática/SVG transparente (seção 21). */}
+          <div className="max-w-md">
+            <h1 className="font-display text-display-xl font-semibold leading-tight">
+              {SYSTEM_NAME}
+            </h1>
+            <p className="mt-4 text-body text-white/70">
+              Plataforma interna Vegas para registro e acompanhamento de atendimentos a parceiros.
+            </p>
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Vegas Card</h1>
-          <p className="text-sm text-gray-500 mt-1">Portal de Atendimento Parceiros</p>
-        </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">E-mail</label>
-              <input
-                type="email"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5]"
-                placeholder="seu@email.com.br"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
+          <div className="max-w-md text-caption leading-relaxed text-white/60">
+            <p className="font-medium text-white/80">Uso interno e confidencial</p>
+            <p className="mt-1">
+              Acesso restrito a colaboradores autorizados. As informações tratadas neste sistema
+              são confidenciais e de uso exclusivo interno da Vegas.
+            </p>
+          </div>
+        </aside>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">Senha</label>
-              <input
-                type="password"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#185FA5]/20 focus:border-[#185FA5]"
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-            </div>
-
-            {error && (
-              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">
-                {error}
+        {/* Área de autenticação (direita) — fundo claro */}
+        <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
+          <div className="w-full max-w-sm">
+            <header className="mb-8 text-center">
+              <VegasLogo variant="completa" size={130} priority className="block mx-auto" />
+              <h2 className="mt-6 font-display text-h1 font-semibold text-vg-ink">
+                {SYSTEM_NAME}
+              </h2>
+              <p className="mt-1 text-body-sm text-vg-ink-secondary">
+                Entre com suas credenciais para acessar o painel.
               </p>
-            )}
+            </header>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium bg-[#185FA5] text-white hover:bg-[#0C447C] transition-colors disabled:opacity-60"
-            >
-              {loading ? 'Entrando…' : 'Entrar'}
-            </button>
-          </form>
-        </div>
+            <form onSubmit={handleLogin} className="space-y-5" noValidate>
+              {/* E-mail */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="email" className="text-body-sm font-medium text-vg-ink">E-mail</label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className={fieldClass}
+                  placeholder="seu@email.com.br"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+              </div>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Vegas Card © {new Date().getFullYear()}
-        </p>
+              {/* Senha com botão Mostrar */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="password" className="text-body-sm font-medium text-vg-ink">Senha</label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
+                    className={fieldClass + ' pr-24'}
+                    placeholder="Sua senha"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    aria-pressed={showPassword}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2 py-1 rounded-md text-caption font-medium text-vg-brand-500 hover:text-vg-brand-800 focus:outline-none focus:ring-2 focus:ring-vg-brand-500 transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                    {showPassword ? 'Ocultar' : 'Mostrar'}
+                  </button>
+                </div>
+
+                {/* Mensagem de erro próxima ao campo */}
+                {error && (
+                  <p role="alert" className="mt-1 text-body-sm text-vg-danger-fg bg-vg-danger-bg px-3 py-2 rounded-[10px]">
+                    {error}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full inline-flex items-center justify-center px-4 py-2.5 rounded-[10px] text-body font-medium bg-vg-brand-500 text-white hover:bg-vg-brand-800 focus:outline-none focus:ring-2 focus:ring-vg-brand-500 focus:ring-offset-2 transition-colors disabled:opacity-60"
+              >
+                {loading ? 'Entrando…' : 'Entrar'}
+              </button>
+            </form>
+
+            {/* Versão no rodapé */}
+            <p className="mt-10 text-center text-caption text-vg-ink-secondary">
+              Vegas · {SYSTEM_NAME} · {APP_VERSION}
+            </p>
+          </div>
+        </main>
       </div>
     </div>
   )

@@ -1,0 +1,33 @@
+/*
+ * VEGAS PLATFORM UI STANDARD v1.0 — Tokens canônicos
+ *
+ * Esta é a ÚNICA fonte de hexadecimais do projeto. Componentes e Tailwind
+ * consomem estes tokens via CSS vars — nunca duplicar hex fora daqui.
+ * Referência: VEGAS-PLATFORM-UI-STANDARD.md (seções 3, 3.1, 3.2 e 14).
+ */
+:root {
+  /* Marca */
+  --vg-brand-500: #4D56A1; /* botão primário, link, item ativo */
+  --vg-brand-800: #2C3164; /* painel institucional, títulos de alto contraste */
+  --vg-brand-400: #6E68AE; /* início do gradiente e elementos de marca */
+  --vg-rose-400:  #9E7A9C; /* meio do gradiente; uso controlado */
+  --vg-peach-400: #D69086; /* fim do gradiente; uso decorativo restrito */
+  --vg-peach-600: #9E5445; /* corrigido (seção 3.1) — contraste AA sobre Peach 50 */
+
+  /* Superfícies e texto */
+  --vg-bg:            #F5F5FA; /* fundo geral da aplicação */
+  --vg-surface:       #FFFFFF; /* cards, modais e tabelas */
+  --vg-ink:           #1C1F3B; /* texto principal */
+  --vg-ink-secondary: #494D6E; /* texto de apoio */
+  --vg-border-field:  #8E90AD; /* borda de inputs (seção 3.1) */
+
+  /* Semânticos — fundo / texto (seção 14) */
+  --vg-success-bg: #E4F4EE; --vg-success-fg: #1F7A5C;
+  --vg-warning-bg: #FDF3E2; --vg-warning-fg: #9A6410;
+  --vg-danger-bg:  #FBEAEC; --vg-danger-fg:  #B03A45;
+  --vg-info-bg:    #F0F0F8; --vg-info-fg:    #434B8F;
+  --vg-neutral-bg: #EEEEF4; --vg-neutral-fg: #5A5E7A;
+
+  /* Gradiente institucional (seção 3.2) — assinatura discreta (2–3px) */
+  --vg-gradient-institucional: linear-gradient(90deg, #6E68AE 0%, #9E7A9C 52%, #D69086 100%);
+}
