@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StatusBadge, PriorityBadge } from '@/components/tickets/StatusBadge'
-import { TYPE_LABELS, DEPARTMENT_LABELS } from '@/lib/constants'
+import { TYPE_LABELS } from '@/lib/constants'
+import { useDepartments } from '@/hooks/useDepartments'
 import SlaAlertPanel from '@/components/dashboard/SlaAlert'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
@@ -10,6 +11,7 @@ import type { DashboardSummary, TicketWithDetails } from '@/lib/types'
 
 export default function DashboardPage() {
   const supabase = createClient()
+  const { deptLabels: DEPARTMENT_LABELS } = useDepartments()
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [tickets, setTickets] = useState<TicketWithDetails[]>([])
 

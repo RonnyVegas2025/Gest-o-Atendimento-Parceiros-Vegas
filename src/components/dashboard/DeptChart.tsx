@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { DEPARTMENT_LABELS } from '@/lib/constants'
+import { useDepartments } from '@/hooks/useDepartments'
 import type { TicketDepartment } from '@/lib/types'
 
 interface DeptCount {
@@ -12,6 +12,7 @@ interface DeptCount {
 export function DeptChart() {
   const [data, setData] = useState<DeptCount[]>([])
   const supabase = createClient()
+  const { deptLabels: DEPARTMENT_LABELS } = useDepartments()
 
   useEffect(() => {
     supabase
@@ -41,7 +42,7 @@ export function DeptChart() {
         data.map(item => (
           <div key={item.department} className="flex items-center gap-3">
             <span className="w-24 text-xs text-gray-500 text-right flex-shrink-0">
-              {DEPARTMENT_LABELS[item.department]}
+              {DEPARTMENT_LABELS[item.department] ?? item.department}
             </span>
             <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
               <div

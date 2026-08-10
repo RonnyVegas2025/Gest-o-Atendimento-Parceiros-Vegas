@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { AlertTriangle, Clock, ChevronDown, ChevronUp } from 'lucide-react'
 import Link from 'next/link'
+import { useDepartments } from '@/hooks/useDepartments'
 import { cn } from '@/lib/utils'
 
 interface SlaTicket {
@@ -13,13 +14,6 @@ interface SlaTicket {
   status: string
   department: string
   open_seconds: number
-}
-
-const DEPT_LABELS: Record<string, string> = {
-  comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
-  operacional: 'Operacional', rede: 'Rede', marketing: 'Marketing',
-  juridico: 'Juridico', logistica: 'Logistica',
-  ti_vegas: 'T.I Vegas', ti_ifc: 'T.I IFC', ti_swap: 'T.I Swap',
 }
 
 function timeRemaining(deadline: string): { text: string; urgent: boolean; overdue: boolean } {
@@ -38,6 +32,7 @@ function timeRemaining(deadline: string): { text: string; urgent: boolean; overd
 
 export default function SlaAlertPanel() {
   const supabase = createClient()
+  const { deptLabels: DEPT_LABELS } = useDepartments()
   const [tickets, setTickets] = useState<SlaTicket[]>([])
   const [expanded, setExpanded] = useState(true)
 

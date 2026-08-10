@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Check, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useDepartments } from '@/hooks/useDepartments'
 
 interface Attendant {
   id: string
@@ -20,19 +21,13 @@ const ROLE_CONFIG = {
   atendimento:    { label: 'Atendimento',     color: 'bg-gray-100 text-gray-600 border border-gray-200' },
 }
 
-const DEPT_LABELS: Record<string, string> = {
-  comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
-  operacional: 'Operacional', rede: 'Rede', marketing: 'Marketing',
-  juridico: 'Juridico', logistica: 'Logistica',
-  ti_vegas: 'T.I Vegas', ti_ifc: 'T.I IFC', ti_swap: 'T.I Swap',
-}
-
 const EMPTY: { full_name: string; email: string; phone: string; role: 'gestor_master' | 'supervisor_adm' | 'atendimento'; department: string } = {
   full_name: '', email: '', phone: '', role: 'atendimento', department: 'comercial'
 }
 
 export default function UsuariosPage() {
   const supabase = createClient()
+  const { departments, deptLabels: DEPT_LABELS, loading: deptLoading } = useDepartments()
   const [attendants, setAttendants] = useState<Attendant[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -204,18 +199,8 @@ export default function UsuariosPage() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Departamento</label>
-                  <select className="select" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}>
-                    <option value="comercial">ADM Comercial</option>
-                    <option value="cadastro">Cadastro</option>
-                    <option value="financeiro">Financeiro</option>
-                    <option value="operacional">Operacional</option>
-                    <option value="rede">Rede</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="juridico">Juridico</option>
-                    <option value="logistica">Logistica</option>
-                    <option value="ti_vegas">T.I Vegas</option>
-                    <option value="ti_ifc">T.I IFC</option>
-                    <option value="ti_swap">T.I Swap</option>
+                  <select className="select" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
+                    {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
                 </div>
               </div>

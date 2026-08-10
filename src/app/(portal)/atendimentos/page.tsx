@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PriorityBadge } from '@/components/tickets/StatusBadge'
 import { formatDateShort } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/lib/constants'
+import { useDepartments } from '@/hooks/useDepartments'
 import Link from 'next/link'
 import { Plus, Zap, AlertTriangle, Clock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -85,6 +85,7 @@ function SemCadastroBadge() {
 
 export default function AtendimentosPage() {
   const supabase = createClient()
+  const { departments, deptLabels: DEPARTMENT_LABELS, loading: deptLoading } = useDepartments()
   const [tickets, setTickets]       = useState<any[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
   const [loading, setLoading]       = useState(true)
@@ -238,19 +239,9 @@ export default function AtendimentosPage() {
           <option value="finalizado">Finalizado</option>
           <option value="cancelado">Cancelado</option>
         </select>
-        <select className="select w-40" value={department} onChange={e => setDepartment(e.target.value)}>
+        <select className="select w-40" value={department} onChange={e => setDepartment(e.target.value)} disabled={deptLoading}>
           <option value="">Todos os depto.</option>
-          <option value="comercial">ADM Comercial</option>
-          <option value="operacional">Operacional</option>
-          <option value="cadastro">Cadastro</option>
-          <option value="financeiro">Financeiro</option>
-          <option value="rede">Rede</option>
-          <option value="marketing">Marketing</option>
-          <option value="juridico">Juridico</option>
-          <option value="logistica">Logistica</option>
-          <option value="ti_vegas">T.I Vegas</option>
-          <option value="ti_ifc">T.I IFC</option>
-          <option value="ti_swap">T.I Swap</option>
+          {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
         <select className="select w-40" value={attendant} onChange={e => setAttendant(e.target.value)}>
           <option value="">Todos os atend.</option>

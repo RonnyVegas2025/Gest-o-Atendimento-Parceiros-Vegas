@@ -7,13 +7,7 @@ import {
 } from 'recharts'
 import { Download, Search, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
-
-const DEPT_LABELS: Record<string, string> = {
-  comercial: 'ADM Comercial', cadastro: 'Cadastro', financeiro: 'Financeiro',
-  operacional: 'Operacional', rede: 'Rede', marketing: 'Marketing',
-  juridico: 'Juridico', logistica: 'Logistica',
-  ti_vegas: 'T.I Vegas', ti_ifc: 'T.I IFC', ti_swap: 'T.I Swap',
-}
+import { useDepartments } from '@/hooks/useDepartments'
 
 const STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aberto: 'Aberto', em_analise: 'Em analise',
@@ -56,6 +50,7 @@ function makeCSV(rows: (string | number | null | undefined)[][], filename: strin
 
 export default function RelatoriosPage() {
   const supabase = createClient()
+  const { deptLabels: DEPT_LABELS } = useDepartments()
   const [tickets, setTickets]           = useState<Ticket[]>([])
   const [loading, setLoading]           = useState(true)
   const [period, setPeriod]             = useState('30')
@@ -114,7 +109,7 @@ export default function RelatoriosPage() {
   const byDept = useMemo(() => Object.entries(
     tickets.reduce((acc: Record<string,number>, t) => { acc[t.department] = (acc[t.department]??0)+1; return acc }, {})
   ).map(([d,c]) => ({ dept: DEPT_LABELS[d]??d, key: d, count: c, finalizados: tickets.filter(t=>t.department===d&&t.status==='finalizado').length }))
-    .sort((a,b) => b.count-a.count), [tickets])
+    .sort((a,b) => b.count-a.count), [tickets, DEPT_LABELS])
 
   const byType = useMemo(() => {
     const map: Record<string,number> = {}
