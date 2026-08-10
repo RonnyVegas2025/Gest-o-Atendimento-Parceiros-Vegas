@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Company } from '@/lib/types'
 import { ArrowLeft, Info, Search, X, FileText, Zap, Clock } from 'lucide-react'
@@ -18,6 +18,9 @@ const PRIORITY_COLORS: Record<string, string> = {
 const PRIORITY_LABELS: Record<string, string> = {
   alta: 'Alta', media: 'Media', baixa: 'Baixa'
 }
+
+// Normaliza texto para busca sem acento e case-insensitive
+const normalizeText = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 interface TicketType {
   id: string
@@ -68,6 +71,11 @@ export default function NovoAtendimentoPage() {
   })
   // Produtos da empresa selecionada
   const [produtosEmpresa, setProdutosEmpresa] = useState<{produto_id:number|null;produto_nome:string}[]>([])
+
+  // Contatos do parceiro selecionado — sugestões para o campo Solicitante (RH)
+  const [parceiroContatos, setParceiroContatos] = useState<{id:string;nome:string;cargo:string|null}[]>([])
+  const [showReqDropdown, setShowReqDropdown] = useState(false)
+  const reqBoxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // Busca usuário logado na tabela users_profile pelo email
@@ -136,6 +144,42 @@ export default function NovoAtendimentoPage() {
     )
     setFiltered(results)
   }, [companySearch, companies, empresaProdutos])
+
+  // Busca contatos do parceiro selecionado (refaz sempre que o parceiro muda)
+  useEffect(() => {
+    setShowReqDropdown(false)
+    if (!form.parceiro_id) { setParceiroContatos([]); return }
+    let active = true
+    supabase.from('parceiro_contatos')
+      .select('id, nome, cargo, active')
+      .eq('parceiro_id', form.parceiro_id)
+      .eq('active', true)
+      .order('nome')
+      .then(({ data }) => {
+        if (!active) return
+        setParceiroContatos((data as any[]) ?? [])
+      })
+    return () => { active = false }
+  }, [form.parceiro_id])
+
+  // Fecha o dropdown de sugestões ao clicar fora
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (reqBoxRef.current && !reqBoxRef.current.contains(e.target as Node)) {
+        setShowReqDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+
+  // Sugestões filtradas por nome (sem acento, case-insensitive)
+  const reqSuggestions = useMemo(() => {
+    if (parceiroContatos.length === 0) return []
+    const q = normalizeText(form.requester_name.trim())
+    if (!q) return parceiroContatos
+    return parceiroContatos.filter(c => normalizeText(c.nome).includes(q))
+  }, [parceiroContatos, form.requester_name])
 
   function set(field: string, value: string) {
     setForm(p => ({ ...p, [field]: value }))
@@ -324,9 +368,25 @@ export default function NovoAtendimentoPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="form-group">
+                <div className="form-group relative" ref={reqBoxRef}>
                   <label className="form-label">Solicitante (RH){isPre && <span className="text-gray-400 font-normal"> (opcional)</span>}</label>
-                  <input className="input" placeholder="Nome do responsavel" value={form.requester_name} onChange={e => set('requester_name', e.target.value)} />
+                  <input className="input" placeholder="Nome do responsavel" autoComplete="off"
+                    value={form.requester_name}
+                    onChange={e => { set('requester_name', e.target.value); setShowReqDropdown(true) }}
+                    onFocus={() => setShowReqDropdown(true)}
+                    onKeyDown={e => { if (e.key === 'Escape') setShowReqDropdown(false) }} />
+                  {showReqDropdown && reqSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 z-20 border border-gray-200 rounded-xl shadow-lg mt-1 bg-white max-h-48 overflow-y-auto">
+                      {reqSuggestions.map(c => (
+                        <button key={c.id} type="button"
+                          className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors"
+                          onClick={() => { set('requester_name', c.nome); setShowReqDropdown(false) }}>
+                          <span className="text-sm font-medium text-gray-900">{c.nome}</span>
+                          {c.cargo && <span className="text-xs text-gray-400 ml-2">{c.cargo}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label className="form-label">Colaborador envolvido</label>
