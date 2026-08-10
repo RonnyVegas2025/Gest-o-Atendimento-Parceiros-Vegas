@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Search, Plus, Upload, X, Loader2, PowerOff, Power } from 'lucide-react'
+import { PRODUTOS } from '@/lib/constants'
 
-const PRODUTOS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Refeição','Combustível Frota','Farmácia','Plus Bank','Plus Híbrido','Vegas Benefícios','Alimentação Híbrido','Cartão Natal']
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
 
 const PROD_COLORS: Record<string,{bg:string;color:string}> = {

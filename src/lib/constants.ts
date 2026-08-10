@@ -81,6 +81,10 @@ export const SLA_HOURS: Record<TicketPriority, number> = {
   baixa: 24,
 }
 
+// Catálogo de produtos Vegas — fonte única (usado na listagem, no cadastro e na
+// gestão de produtos por empresa).
+export const PRODUTOS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Refeição','Combustível Frota','Farmácia','Plus Bank','Plus Híbrido','Vegas Benefícios','Alimentação Híbrido','Cartão Natal']
+
 // Status das ocorrências (registro de erros por departamento) — fonte única de
 // rótulo, cor e descrição, compartilhada entre a lista, o detalhe e a legenda.
 export const STATUS_OCORRENCIA: Record<string, { label: string; badge: string; descricao: string }> = {

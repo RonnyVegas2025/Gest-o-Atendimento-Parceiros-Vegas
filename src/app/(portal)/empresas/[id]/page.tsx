@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Pencil, Check, X, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Pencil, Check, X, RefreshCw, Plus, Power, PowerOff } from 'lucide-react'
+import { PRODUTOS } from '@/lib/constants'
 
 const PROD_COLORS: Record<string,{bg:string;color:string}> = {
   'Alimentação':       { bg:'#E1F5EE', color:'#0F6E56' },
@@ -99,6 +100,14 @@ export default function EmpresaDetalhePage() {
   const [msg, setMsg] = useState<{text:string;ok:boolean}|null>(null)
   const [loadingCnpj, setLoadingCnpj] = useState(false)
 
+  // Gestão de produtos da empresa
+  const [produtos, setProdutos] = useState<{id:string;produto_nome:string;produto_id:number|null;ativo:boolean}[]>([])
+  const [showInativos, setShowInativos] = useState(false)
+  const [showAddProduto, setShowAddProduto] = useState(false)
+  const [addForm, setAddForm] = useState({ produto_nome: '', produto_id: '' })
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState('')
+
   async function load() {
     const [{ data }, { data: parts }] = await Promise.all([
       supabase.from('empresas_conveniadas')
@@ -111,7 +120,43 @@ export default function EmpresaDetalhePage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [id])
+  async function loadProdutos() {
+    const { data } = await supabase.from('empresas_produtos')
+      .select('id, produto_nome, produto_id, ativo')
+      .eq('empresa_id', id as string)
+      .order('produto_nome')
+    setProdutos((data as any[]) ?? [])
+  }
+
+  useEffect(() => { load(); loadProdutos() }, [id])
+
+  async function addProduto(e: React.FormEvent) {
+    e.preventDefault()
+    setAddError('')
+    if (!addForm.produto_nome) { setAddError('Selecione o produto.'); return }
+    // Impede duplicar: já existe registro ATIVO com o mesmo produto_nome
+    if (produtos.some(p => p.ativo && p.produto_nome === addForm.produto_nome)) {
+      setAddError('Este produto já está ativo para a empresa.'); return
+    }
+    setAddSaving(true)
+    const { error } = await supabase.from('empresas_produtos').insert({
+      empresa_id:   id as string,
+      produto_nome: addForm.produto_nome,
+      produto_id:   addForm.produto_id.trim() ? parseInt(addForm.produto_id.trim()) : null,
+      ativo:        true,
+    })
+    setAddSaving(false)
+    if (error) { setAddError(error.message); return }
+    setShowAddProduto(false)
+    setAddForm({ produto_nome: '', produto_id: '' })
+    loadProdutos()
+  }
+
+  // Nunca exclui — atendimentos antigos referenciam produto_id/produto_nome.
+  async function toggleProduto(produtoId: string, ativo: boolean) {
+    await supabase.from('empresas_produtos').update({ ativo: !ativo }).eq('id', produtoId)
+    loadProdutos()
+  }
 
   async function saveField(field: string, value: string) {
     const { error } = await supabase.from('empresas_conveniadas')
@@ -201,7 +246,8 @@ export default function EmpresaDetalhePage() {
   if (loading) return <div className="p-6 text-center text-sm text-gray-400">Carregando...</div>
   if (!empresa) return <div className="p-6 text-center text-sm text-gray-400">Empresa não encontrada.</div>
 
-  const produtos = empresa.empresas_produtos ?? []
+  const produtosAtivos = produtos.filter(p => p.ativo)
+  const produtosInativos = produtos.filter(p => !p.ativo)
   const cnpjFmt = empresa.cnpj?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
   const parceiroOptions = parceiros.map(p => ({ value: p.name, label: p.name }))
 
@@ -336,26 +382,98 @@ export default function EmpresaDetalhePage() {
           <div className="card">
             <div className="card-header">
               <span className="card-title">Produtos Contratados</span>
-              <span className="text-xs text-gray-400">{produtos.length} produto{produtos.length !== 1 ? 's' : ''}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">{produtosAtivos.length} produto{produtosAtivos.length !== 1 ? 's' : ''}</span>
+                <button onClick={() => { setAddForm({ produto_nome: '', produto_id: '' }); setAddError(''); setShowAddProduto(true) }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 text-[10px] font-bold hover:bg-indigo-100 transition-colors">
+                  <Plus size={11} /> Adicionar
+                </button>
+              </div>
             </div>
             <div className="divide-y divide-gray-50">
-              {produtos.length === 0 && <div className="px-4 py-3 text-xs text-center text-gray-400">Nenhum produto.</div>}
-              {produtos.map((p: any) => {
+              {produtosAtivos.length === 0 && <div className="px-4 py-3 text-xs text-center text-gray-400">Nenhum produto ativo.</div>}
+              {produtosAtivos.map(p => {
                 const c = PROD_COLORS[p.produto_nome] ?? { bg:'#F1EFE8', color:'#5F5E5A' }
                 return (
-                  <div key={p.id} className="flex items-center justify-between px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ background:c.color }}/>
-                      <span className="text-sm font-semibold text-gray-800">{p.produto_nome}</span>
+                  <div key={p.id} className="flex items-center justify-between px-4 py-2.5 group">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background:c.color }}/>
+                      <span className="text-sm font-semibold text-gray-800 truncate">{p.produto_nome}</span>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background:c.bg, color:c.color }}>
-                      ID {p.produto_id ?? '—'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background:c.bg, color:c.color }}>
+                        ID {p.produto_id ?? '—'}
+                      </span>
+                      <button onClick={() => toggleProduto(p.id, p.ativo)} title="Inativar produto"
+                        className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all">
+                        <PowerOff size={12} />
+                      </button>
+                    </div>
                   </div>
                 )
               })}
             </div>
+
+            {produtosInativos.length > 0 && (
+              <div className="border-t border-gray-100">
+                <button onClick={() => setShowInativos(v => !v)}
+                  className="w-full px-4 py-2 text-[11px] font-medium text-gray-400 hover:text-gray-600 hover:bg-gray-50 text-left transition-colors">
+                  {showInativos ? 'Ocultar' : 'Mostrar'} inativos ({produtosInativos.length})
+                </button>
+                {showInativos && (
+                  <div className="divide-y divide-gray-50">
+                    {produtosInativos.map(p => (
+                      <div key={p.id} className="flex items-center justify-between px-4 py-2.5 opacity-60 group">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-300"/>
+                          <span className="text-sm font-medium text-gray-500 line-through truncate">{p.produto_nome}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">ID {p.produto_id ?? '—'}</span>
+                          <button onClick={() => toggleProduto(p.id, p.ativo)} title="Reativar produto"
+                            className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-all">
+                            <Power size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Modal adicionar produto */}
+          {showAddProduto && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowAddProduto(false)} />
+              <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-900">Adicionar produto</h2>
+                  <button onClick={() => setShowAddProduto(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+                </div>
+                <form onSubmit={addProduto} className="p-6 space-y-4">
+                  <div className="form-group">
+                    <label className="form-label">Produto *</label>
+                    <select className="select" value={addForm.produto_nome} onChange={e => setAddForm(f => ({ ...f, produto_nome: e.target.value }))} required>
+                      <option value="">Selecione o produto...</option>
+                      {PRODUTOS.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">ID do produto <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <input type="number" className="input" placeholder="Ex: 14771"
+                      value={addForm.produto_id} onChange={e => setAddForm(f => ({ ...f, produto_id: e.target.value }))} />
+                  </div>
+                  {addError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{addError}</p>}
+                  <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                    <button type="button" onClick={() => setShowAddProduto(false)} className="btn">Cancelar</button>
+                    <button type="submit" disabled={addSaving} className="btn-primary">{addSaving ? 'Salvando...' : 'Adicionar produto'}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <div className="card-header"><span className="card-title">Grupo Econômico</span></div>
