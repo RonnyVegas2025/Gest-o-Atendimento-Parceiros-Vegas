@@ -18,6 +18,9 @@ const DEPARTMENTS = [
   { value: 'marketing',   label: 'Marketing' },
   { value: 'juridico',    label: 'Juridico' },
   { value: 'logistica',   label: 'Logistica' },
+  { value: 'ti_vegas',    label: 'T.I Vegas' },
+  { value: 'ti_ifc',      label: 'T.I IFC' },
+  { value: 'ti_swap',     label: 'T.I Swap' },
 ]
 
 const PRODUTOS_OPTIONS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Combustível Frota','Farmácia','Cartão Natal','Plus Bank','Plus Híbrido','Vegas Benefícios','Alimentação Híbrido']
@@ -27,6 +30,7 @@ const DEPT_COLORS: Record<string, string> = {
   financeiro: 'bg-amber-100 text-amber-700', operacional: 'bg-green-100 text-green-700',
   rede: 'bg-cyan-100 text-cyan-700', marketing: 'bg-pink-100 text-pink-700',
   juridico: 'bg-red-100 text-red-700', logistica: 'bg-orange-100 text-orange-700',
+  ti_vegas: 'bg-indigo-100 text-indigo-700', ti_ifc: 'bg-teal-100 text-teal-700', ti_swap: 'bg-slate-200 text-slate-700',
 }
 
 const ACTION_STATUSES = [

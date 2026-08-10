@@ -17,6 +17,9 @@ const ALL_DEPARTMENTS = [
   { value: 'marketing',   label: 'Marketing' },
   { value: 'juridico',    label: 'Juridico' },
   { value: 'logistica',   label: 'Logistica' },
+  { value: 'ti_vegas',    label: 'T.I Vegas' },
+  { value: 'ti_ifc',      label: 'T.I IFC' },
+  { value: 'ti_swap',     label: 'T.I Swap' },
 ]
 
 const PRIORITY_COLORS: Record<string, string> = {
