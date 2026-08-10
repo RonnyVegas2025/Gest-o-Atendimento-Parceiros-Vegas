@@ -6,7 +6,7 @@ import { VegasLogo } from '@/components/brand/VegasLogo'
 import { Eye, EyeOff } from 'lucide-react'
 
 const APP_VERSION = 'v0.1.0'
-const SYSTEM_NAME = 'Gestão de Atendimento — Parceiros'
+const SYSTEM_NAME = 'Gestão de Atendimento Parceiros'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -47,8 +47,8 @@ export default function LoginPage() {
       <div className="flex flex-1 min-h-0">
         {/* Painel institucional (esquerda) — oculto no mobile */}
         <aside className="hidden lg:flex lg:w-1/2 xl:w-[45%] flex-col justify-between bg-vg-brand-800 text-white p-12">
-          <VegasLogo variant="completa" size={44} priority className="brightness-0 invert" />
-
+          {/* Logo omitido: o PNG tem fundo branco opaco e viraria mancha sobre o painel escuro.
+              Reintroduzir quando houver variante monocromática/SVG transparente (seção 21). */}
           <div className="max-w-md">
             <h1 className="font-display text-display-xl font-semibold leading-tight">
               {SYSTEM_NAME}
@@ -71,7 +71,7 @@ export default function LoginPage() {
         <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
           <div className="w-full max-w-sm">
             <header className="mb-8">
-              <VegasLogo variant="completa" size={40} priority />
+              <VegasLogo variant="completa" size={64} priority className="block" />
               <h2 className="mt-6 font-display text-h1 font-semibold text-vg-ink">
                 {SYSTEM_NAME}
               </h2>
