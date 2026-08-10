@@ -10,12 +10,13 @@ import { useDepartments } from '@/hooks/useDepartments'
 /*
  * NOVA OCORRÊNCIA — registro de erros por departamento (análise de causa raiz).
  *
- * Schema assumido para `ocorrencias` (tabela já existente; ajustar aqui se diferir):
- *   protocolo (gerado por trigger — inserimos vazio e lemos de volta),
- *   departamento (value do departamento), tipo_erro_id, titulo, observacao,
- *   imagens (array de URLs), company_id, ticket_id, responsavel_id,
- *   gravidade ('baixa'|'media'|'alta'), data_ocorrencia (date), status, created_by.
- * `tipos_erro`: id, departamento, nome, active.
+ * Schema de `ocorrencias` (confirmado):
+ *   id, protocolo (trigger trg_ocorrencia_protocol — inserimos vazio e lemos de volta),
+ *   department (FK departments.value), tipo_erro_id, titulo, observacao,
+ *   imagens (jsonb), empresa_id (uuid) + empresa_nome (text livre, padrão dos tickets),
+ *   ticket_id, responsavel_id, gravidade ('baixa'|'media'|'alta'), status,
+ *   data_ocorrencia, created_by, created_at, updated_at.
+ * `tipos_erro`: id, department, nome, descricao, active, created_at.
  */
 
 const GRAVIDADES = [
@@ -27,7 +28,7 @@ const GRAVIDADES = [
 const normalizeText = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const hoje = () => new Date().toISOString().slice(0, 10)
 
-interface TipoErro { id: string; departamento: string; nome: string; active: boolean }
+interface TipoErro { id: string; department: string; nome: string; active: boolean }
 
 export default function NovaOcorrenciaPage() {
   const supabase = createClient()
@@ -59,7 +60,7 @@ export default function NovaOcorrenciaPage() {
 
   const [imagens, setImagens] = useState<string[]>([])
   const [form, setForm] = useState({
-    departamento: '',
+    department: '',
     tipo_erro_id: '',
     titulo: '',
     observacao: '',
@@ -96,12 +97,12 @@ export default function NovaOcorrenciaPage() {
   // Recarrega tipos de erro sempre que o departamento muda
   useEffect(() => {
     set('tipo_erro_id', '')
-    if (!form.departamento) { setTiposErro([]); return }
+    if (!form.department) { setTiposErro([]); return }
     let active = true
     setLoadingTipos(true)
     supabase.from('tipos_erro')
-      .select('id, departamento, nome, active')
-      .eq('departamento', form.departamento)
+      .select('id, department, nome, active')
+      .eq('department', form.department)
       .eq('active', true)
       .order('nome')
       .then(({ data }) => {
@@ -111,7 +112,7 @@ export default function NovaOcorrenciaPage() {
       })
     return () => { active = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.departamento])
+  }, [form.department])
 
   // Fecha dropdowns ao clicar fora
   useEffect(() => {
@@ -149,7 +150,7 @@ export default function NovaOcorrenciaPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!form.departamento) { setError('Selecione o departamento.'); return }
+    if (!form.department) { setError('Selecione o departamento.'); return }
     if (!form.tipo_erro_id) { setError('Selecione o tipo de erro.'); return }
     if (!form.titulo.trim()) { setError('Informe o título específico.'); return }
     setLoading(true)
@@ -157,12 +158,13 @@ export default function NovaOcorrenciaPage() {
     // protocolo gerado por trigger no banco (inserimos vazio e lemos de volta) — mesma lógica dos atendimentos
     const payload: Record<string, unknown> = {
       protocolo:        '',
-      departamento:     form.departamento,
+      department:     form.department,
       tipo_erro_id:     form.tipo_erro_id,
       titulo:           form.titulo.trim(),
       observacao:       form.observacao.trim() || null,
       imagens:          imagens.length > 0 ? imagens : null,
-      company_id:       selectedCompany?.id ?? null,
+      empresa_id:       selectedCompany?.id ?? null,
+      empresa_nome:     !selectedCompany && companySearch.trim() ? companySearch.trim() : null,
       ticket_id:        selectedTicket?.id ?? null,
       responsavel_id:   form.responsavel_id || null,
       gravidade:        form.gravidade,
@@ -197,7 +199,7 @@ export default function NovaOcorrenciaPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
                   <label className="form-label">Departamento *</label>
-                  <select className="select" value={form.departamento} onChange={e => set('departamento', e.target.value)} disabled={deptLoading} required>
+                  <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading} required>
                     <option value="">Selecione o departamento...</option>
                     {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
@@ -205,9 +207,9 @@ export default function NovaOcorrenciaPage() {
                 <div className="form-group">
                   <label className="form-label">Tipo de erro *</label>
                   <select className="select" value={form.tipo_erro_id} onChange={e => set('tipo_erro_id', e.target.value)}
-                    disabled={!form.departamento || loadingTipos} required>
+                    disabled={!form.department || loadingTipos} required>
                     <option value="">
-                      {!form.departamento ? 'Selecione o departamento antes' : loadingTipos ? 'Carregando...' : tiposErro.length === 0 ? 'Nenhum tipo para este departamento' : 'Selecione o tipo de erro...'}
+                      {!form.department ? 'Selecione o departamento antes' : loadingTipos ? 'Carregando...' : tiposErro.length === 0 ? 'Nenhum tipo para este departamento' : 'Selecione o tipo de erro...'}
                     </option>
                     {tiposErro.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
                   </select>

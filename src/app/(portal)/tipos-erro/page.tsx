@@ -6,17 +6,17 @@ import { useDepartments } from '@/hooks/useDepartments'
 
 /*
  * CRUD de TIPOS DE ERRO por departamento. Permite inativar, nunca excluir.
- * Schema assumido (`tipos_erro`): id, departamento (value), nome, active.
+ * Schema assumido (`tipos_erro`): id, department (value), nome, active.
  */
 
 interface TipoErro {
   id: string
-  departamento: string
+  department: string
   nome: string
   active: boolean
 }
 
-const EMPTY = { departamento: '', nome: '' }
+const EMPTY = { department: '', nome: '' }
 
 export default function TiposErroPage() {
   const supabase = createClient()
@@ -34,7 +34,7 @@ export default function TiposErroPage() {
 
   async function fetchTipos() {
     setLoading(true)
-    const { data } = await supabase.from('tipos_erro').select('*').order('departamento').order('nome')
+    const { data } = await supabase.from('tipos_erro').select('*').order('department').order('nome')
     setTipos((data as TipoErro[]) ?? [])
     setLoading(false)
   }
@@ -43,8 +43,8 @@ export default function TiposErroPage() {
   const grouped = useMemo(() => {
     const map: Record<string, TipoErro[]> = {}
     tipos.filter(t => t.active).forEach(t => {
-      if (!map[t.departamento]) map[t.departamento] = []
-      map[t.departamento].push(t)
+      if (!map[t.department]) map[t.department] = []
+      map[t.department].push(t)
     })
     return map
   }, [tipos])
@@ -55,15 +55,15 @@ export default function TiposErroPage() {
     setForm(EMPTY); setEditingId(null); setError(''); setShowModal(true)
   }
   function openEdit(t: TipoErro) {
-    setForm({ departamento: t.departamento, nome: t.nome }); setEditingId(t.id); setError(''); setShowModal(true)
+    setForm({ department: t.department, nome: t.nome }); setEditingId(t.id); setError(''); setShowModal(true)
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.departamento) { setError('Selecione o departamento.'); return }
+    if (!form.department) { setError('Selecione o departamento.'); return }
     if (!form.nome.trim()) { setError('Informe o nome do tipo de erro.'); return }
     setSaving(true)
-    const payload = { departamento: form.departamento, nome: form.nome.trim() }
+    const payload = { department: form.department, nome: form.nome.trim() }
     const { error: err } = editingId
       ? await supabase.from('tipos_erro').update(payload).eq('id', editingId)
       : await supabase.from('tipos_erro').insert({ ...payload, active: true })
@@ -129,7 +129,7 @@ export default function TiposErroPage() {
                 <div key={t.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 160px 100px' }}>
                   <div className="self-center">
                     <div className="text-sm text-gray-400 line-through">{t.nome}</div>
-                    <div className="text-xs text-gray-300">{deptLabels[t.departamento] ?? t.departamento}</div>
+                    <div className="text-xs text-gray-300">{deptLabels[t.department] ?? t.department}</div>
                   </div>
                   <span className="badge self-center bg-gray-100 text-gray-500 border border-gray-200">Inativo</span>
                   <button onClick={() => toggleActive(t.id, t.active)} className="text-xs text-[#185FA5] hover:underline self-center">Reativar</button>
@@ -152,7 +152,7 @@ export default function TiposErroPage() {
             <form onSubmit={handleSave} className="p-6 space-y-4">
               <div className="form-group">
                 <label className="form-label">Departamento *</label>
-                <select className="select" value={form.departamento} onChange={e => setForm(f => ({ ...f, departamento: e.target.value }))} disabled={deptLoading} required>
+                <select className="select" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading} required>
                   <option value="">Selecione o departamento...</option>
                   {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>

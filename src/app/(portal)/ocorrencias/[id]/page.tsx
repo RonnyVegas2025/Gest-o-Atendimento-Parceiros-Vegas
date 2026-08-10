@@ -24,6 +24,7 @@ const STATUS_OCORRENCIA: Record<string, { label: string; badge: string }> = {
   em_analise: { label: 'Em análise',  badge: 'bg-amber-50 text-amber-700 border border-amber-200' },
   resolvida:  { label: 'Resolvida',   badge: 'bg-green-100 text-green-800 border border-green-300' },
   cancelada:  { label: 'Cancelada',   badge: 'bg-red-50 text-red-700 border border-red-200' },
+  reincidente:{ label: 'Reincidente', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
 }
 
 function fmtDate(d: string | null) {
@@ -86,12 +87,15 @@ export default function OcorrenciaDetailPage() {
       supabase.from('tickets').select('protocol').eq('id', oc.ticket_id).maybeSingle()
         .then(({ data }) => setTicketProtocol((data as any)?.protocol ?? null))
     }
-    if (oc.company_id) {
-      // company_id pode referenciar empresas_conveniadas ou companies — resolve best-effort
-      supabase.from('empresas_conveniadas').select('nome_fantasia').eq('id', oc.company_id).maybeSingle()
+    if (oc.empresa_nome) {
+      // Empresa digitada livremente (sem cadastro)
+      setEmpresaNome(oc.empresa_nome)
+    } else if (oc.empresa_id) {
+      // empresa_id pode referenciar empresas_conveniadas ou companies — resolve best-effort
+      supabase.from('empresas_conveniadas').select('nome_fantasia').eq('id', oc.empresa_id).maybeSingle()
         .then(({ data }) => {
           if ((data as any)?.nome_fantasia) { setEmpresaNome((data as any).nome_fantasia); return }
-          supabase.from('companies').select('legal_name').eq('id', oc.company_id).maybeSingle()
+          supabase.from('companies').select('legal_name').eq('id', oc.empresa_id).maybeSingle()
             .then(({ data: c }) => setEmpresaNome((c as any)?.legal_name ?? '—'))
         })
     }
@@ -100,7 +104,7 @@ export default function OcorrenciaDetailPage() {
   async function salvarStatus() {
     if (!novoStatus || novoStatus === o.status) return
     setSalvando(true)
-    await supabase.from('ocorrencias').update({ status: novoStatus }).eq('id', id)
+    await supabase.from('ocorrencias').update({ status: novoStatus, updated_at: new Date().toISOString() }).eq('id', id)
     setSalvando(false)
     setOkMsg(true)
     setTimeout(() => setOkMsg(false), 1500)
@@ -131,11 +135,11 @@ export default function OcorrenciaDetailPage() {
             <div className="card-header"><span className="card-title">Informações</span></div>
             <div className="card-body">
               <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-5">
-                <Field label="Departamento">{deptLabels[o.departamento] ?? o.departamento}</Field>
+                <Field label="Departamento">{deptLabels[o.department] ?? o.department}</Field>
                 <Field label="Tipo de erro">{tipoNome}</Field>
                 <Field label="Data da ocorrência">{fmtDate(o.data_ocorrencia)}</Field>
                 <Field label="Gravidade">{grav.label}</Field>
-                <Field label="Empresa">{o.company_id ? empresaNome : '—'}</Field>
+                <Field label="Empresa">{empresaNome}</Field>
                 <Field label="Atendimento relacionado">
                   {o.ticket_id
                     ? <Link href={`/atendimentos/${o.ticket_id}`} className="text-[#185FA5] hover:underline font-mono">{ticketProtocol ?? 'ver'}</Link>

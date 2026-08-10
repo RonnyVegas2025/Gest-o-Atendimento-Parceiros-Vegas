@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
 
 /*
- * LISTA DE OCORRÊNCIAS. Schema assumido (`ocorrencias`): protocolo, departamento,
+ * LISTA DE OCORRÊNCIAS. Schema assumido (`ocorrencias`): protocolo, department,
  * tipo_erro_id, titulo, gravidade, status, data_ocorrencia, created_by, created_at.
  */
 
@@ -22,6 +22,7 @@ const STATUS_OCORRENCIA: Record<string, { label: string; badge: string }> = {
   em_analise: { label: 'Em análise',  badge: 'bg-amber-50 text-amber-700 border border-amber-200' },
   resolvida:  { label: 'Resolvida',   badge: 'bg-green-100 text-green-800 border border-green-300' },
   cancelada:  { label: 'Cancelada',   badge: 'bg-red-50 text-red-700 border border-red-200' },
+  reincidente:{ label: 'Reincidente', badge: 'bg-purple-50 text-purple-700 border border-purple-200' },
 }
 
 const PERIODOS = [
@@ -44,7 +45,7 @@ export default function OcorrenciasPage() {
   const [ocorrencias, setOcorrencias] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tiposMap, setTiposMap] = useState<Record<string, string>>({})
-  const [tipos, setTipos] = useState<{ id: string; nome: string; departamento: string }[]>([])
+  const [tipos, setTipos] = useState<{ id: string; nome: string; department: string }[]>([])
   const [usersMap, setUsersMap] = useState<Record<string, string>>({})
 
   const [fDept, setFDept] = useState('')
@@ -55,7 +56,7 @@ export default function OcorrenciasPage() {
 
   // Listas de apoio (nomes de tipo e de quem registrou)
   useEffect(() => {
-    supabase.from('tipos_erro').select('id, nome, departamento').then(({ data }) => {
+    supabase.from('tipos_erro').select('id, nome, department').then(({ data }) => {
       const arr = (data as any[]) ?? []
       setTipos(arr)
       setTiposMap(Object.fromEntries(arr.map(t => [t.id, t.nome])))
@@ -69,7 +70,7 @@ export default function OcorrenciasPage() {
     async function load() {
       setLoading(true)
       let query = supabase.from('ocorrencias').select('*').order('data_ocorrencia', { ascending: false }).limit(200)
-      if (fDept)   query = query.eq('departamento', fDept)
+      if (fDept)   query = query.eq('department', fDept)
       if (fTipo)   query = query.eq('tipo_erro_id', fTipo)
       if (fGrav)   query = query.eq('gravidade', fGrav)
       if (fStatus) query = query.eq('status', fStatus)
@@ -85,7 +86,7 @@ export default function OcorrenciasPage() {
   }, [fDept, fTipo, fGrav, fStatus, fPeriodo])
 
   const tiposDoFiltro = useMemo(
-    () => (fDept ? tipos.filter(t => t.departamento === fDept) : tipos),
+    () => (fDept ? tipos.filter(t => t.department === fDept) : tipos),
     [tipos, fDept]
   )
 
@@ -144,7 +145,7 @@ export default function OcorrenciasPage() {
             <Link key={o.id} href={`/ocorrencias/${o.id}`} className="table-row grid hover:bg-blue-50/30" style={{ gridTemplateColumns: COLS }}>
               <span className="font-mono text-xs text-indigo-600 self-center truncate">{o.protocolo || '—'}</span>
               <span className="text-xs text-gray-500 self-center">{fmtDate(o.data_ocorrencia)}</span>
-              <span className="text-xs text-gray-600 self-center truncate">{deptLabels[o.departamento] ?? o.departamento}</span>
+              <span className="text-xs text-gray-600 self-center truncate">{deptLabels[o.department] ?? o.department}</span>
               <div className="self-center min-w-0">
                 <div className="text-sm font-medium text-gray-900 truncate">{o.titulo}</div>
                 <div className="text-xs text-gray-400 truncate">{tiposMap[o.tipo_erro_id] ?? '—'}</div>
