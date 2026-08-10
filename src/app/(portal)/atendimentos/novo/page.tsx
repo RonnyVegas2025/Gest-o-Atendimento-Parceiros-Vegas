@@ -7,20 +7,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import { cn } from '@/lib/utils'
-
-const ALL_DEPARTMENTS = [
-  { value: 'comercial',   label: 'ADM Comercial' },
-  { value: 'cadastro',    label: 'Cadastro' },
-  { value: 'financeiro',  label: 'Financeiro' },
-  { value: 'operacional', label: 'Operacional' },
-  { value: 'rede',        label: 'Rede' },
-  { value: 'marketing',   label: 'Marketing' },
-  { value: 'juridico',    label: 'Juridico' },
-  { value: 'logistica',   label: 'Logistica' },
-  { value: 'ti_vegas',    label: 'T.I Vegas' },
-  { value: 'ti_ifc',      label: 'T.I IFC' },
-  { value: 'ti_swap',     label: 'T.I Swap' },
-]
+import { useDepartments } from '@/hooks/useDepartments'
 
 const PRIORITY_COLORS: Record<string, string> = {
   alta:  'bg-red-50 text-red-700 border border-red-200',
@@ -45,6 +32,7 @@ interface TicketType {
 export default function NovoAtendimentoPage() {
   const supabase = createClient()
   const router = useRouter()
+  const { departments: ALL_DEPARTMENTS, loading: deptLoading } = useDepartments()
   const [mode, setMode] = useState<'pre' | 'full'>('full')
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -425,7 +413,7 @@ export default function NovoAtendimentoPage() {
 
                 <div className="form-group">
                   <label className="form-label">Departamento *</label>
-                  <select className="select" value={form.department} onChange={e => set('department', e.target.value)}>
+                  <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading}>
                     {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
                 </div>

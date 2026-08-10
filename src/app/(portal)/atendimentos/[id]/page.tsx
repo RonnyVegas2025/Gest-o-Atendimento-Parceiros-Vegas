@@ -8,20 +8,7 @@ import type { TicketWithDetails, TicketHistory, Company } from '@/lib/types'
 import { ArrowLeft, Clock, Building2, Send, CheckCircle2, XCircle, AlertTriangle, Search, Edit2, X, Check, Plus, RefreshCw, RotateCcw } from 'lucide-react'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import Link from 'next/link'
-
-const DEPARTMENTS = [
-  { value: 'comercial',   label: 'ADM Comercial' },
-  { value: 'cadastro',    label: 'Cadastro' },
-  { value: 'financeiro',  label: 'Financeiro' },
-  { value: 'operacional', label: 'Operacional' },
-  { value: 'rede',        label: 'Rede' },
-  { value: 'marketing',   label: 'Marketing' },
-  { value: 'juridico',    label: 'Juridico' },
-  { value: 'logistica',   label: 'Logistica' },
-  { value: 'ti_vegas',    label: 'T.I Vegas' },
-  { value: 'ti_ifc',      label: 'T.I IFC' },
-  { value: 'ti_swap',     label: 'T.I Swap' },
-]
+import { useDepartments } from '@/hooks/useDepartments'
 
 const PRODUTOS_OPTIONS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Combustível Frota','Farmácia','Cartão Natal','Plus Bank','Plus Híbrido','Vegas Benefícios','Alimentação Híbrido']
 
@@ -229,6 +216,7 @@ export default function TicketDetailPage() {
   const router = useRouter()
   const id = params.id as string
   const supabase = createClient()
+  const { departments: DEPARTMENTS, loading: deptLoading } = useDepartments()
 
   const [ticket, setTicket] = useState<TicketWithDetails | null>(null)
   const [history, setHistory] = useState<TicketHistory[]>([])
@@ -547,7 +535,7 @@ export default function TicketDetailPage() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Departamento</label>
-                    <select className="select" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))}>
+                    <select className="select" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
                       {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                     </select>
                   </div>
@@ -625,7 +613,7 @@ export default function TicketDetailPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="form-group">
                     <label className="form-label">Departamento responsável agora</label>
-                    <select className="select" value={actionDept} onChange={e => setActionDept(e.target.value)}>
+                    <select className="select" value={actionDept} onChange={e => setActionDept(e.target.value)} disabled={deptLoading}>
                       {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                     </select>
                   </div>
