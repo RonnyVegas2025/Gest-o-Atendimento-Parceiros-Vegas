@@ -190,6 +190,7 @@ function EmpresaProdutos({ empresaId }: { empresaId: string }) {
   useEffect(() => {
     supabase.from('empresas_produtos').select('produto_nome, produto_id')
       .eq('empresa_id', empresaId)
+      .eq('ativo', true)
       .then(({ data }) => setProdutos((data as any[]) ?? []))
   }, [empresaId])
 

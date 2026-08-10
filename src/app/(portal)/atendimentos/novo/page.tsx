@@ -8,6 +8,12 @@ import { useRouter } from 'next/navigation'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { STATUS_LABELS } from '@/lib/constants'
+import type { TicketStatus } from '@/lib/types'
+
+// Subconjunto do enum ticket_status oferecido como status inicial (nesta ordem).
+// Reutiliza os rótulos de STATUS_LABELS — sem criar um mapa novo.
+const STATUS_INICIAL: TicketStatus[] = ['aberto', 'em_analise', 'encaminhado', 'em_andamento', 'aguardando_retorno']
 
 const PRIORITY_COLORS: Record<string, string> = {
   alta:  'bg-red-50 text-red-700 border border-red-200',
@@ -66,6 +72,7 @@ export default function NovoAtendimentoPage() {
     type_id:        '',
     department:     'comercial',
     priority:       'media',
+    status:         'aberto',
     sla_hours:      8,
     description:    '',
   })
@@ -96,7 +103,7 @@ export default function NovoAtendimentoPage() {
     Promise.all([
       supabase.from('companies').select('id, legal_name, trade_name, cnpj').eq('status', 'ativa').order('legal_name'),
       supabase.from('empresas_conveniadas').select('id, nome_fantasia, razao_social, cnpj, id_grupo').eq('ativo', true).order('nome_fantasia').limit(5000),
-      supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome').limit(5000)
+      supabase.from('empresas_produtos').select('empresa_id, produto_id, produto_nome').eq('ativo', true).limit(5000)
     ]).then(([{ data: comp }, { data: conv }, { data: prods }]) => {
       setEmpresaProdutos((prods as any[]) ?? [])
       const fromCompanies = (comp ?? []).map((c: any) => ({ id: c.id, legal_name: c.legal_name, trade_name: c.trade_name, cnpj: c.cnpj }))
@@ -211,7 +218,7 @@ export default function NovoAtendimentoPage() {
     setLoading(true)
 
     const selectedType = ticketTypes.find(t => t.id === form.type_id)
-    const status = isDraft ? 'rascunho' : 'aberto'
+    const status = isDraft ? 'rascunho' : form.status
     const parceiroSelecionado = parceiros.find(p => p.id === form.parceiro_id)
 
     const payload: Record<string, unknown> = {
@@ -260,20 +267,21 @@ export default function NovoAtendimentoPage() {
       }
     }
 
-    // ✅ Cria primeiro registro na timeline automaticamente com a descrição
-    if (!isDraft && data?.id) {
+    // Registra o status inicial na timeline quando diferente de 'aberto'.
+    // O trigger trg_ticket_status_log só registra em UPDATE; como aqui é INSERT,
+    // a escolha inicial precisa ser gravada manualmente (mesmo padrão da descrição).
+    if (!isDraft && data?.id && form.status !== 'aberto') {
       const deptLabel = ALL_DEPARTMENTS.find(d => d.value === form.department)?.label ?? form.department
+      const statusLabel = STATUS_LABELS[form.status as TicketStatus] ?? form.status
       await supabase.from('ticket_history').insert({
         ticket_id: data.id,
-        action: `[${deptLabel} → Em andamento] ${form.description}`,
+        action: `[${deptLabel} → ${statusLabel}] ${form.description}`,
         observation: form.description,
         from_status: 'aberto',
-        to_status: 'em_andamento',
+        to_status: form.status,
         user_id: currentUserId,
         elapsed_seconds: 0,
       })
-      // Atualiza status para em_andamento
-      await supabase.from('tickets').update({ status: 'em_andamento' }).eq('id', data.id)
     }
 
     setLoading(false)
@@ -473,7 +481,7 @@ export default function NovoAtendimentoPage() {
                   )}
                 </div>
 
-                <div className="form-group">
+                <div className="form-group col-span-2">
                   <label className="form-label">Departamento *</label>
                   <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading}>
                     {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
@@ -486,6 +494,13 @@ export default function NovoAtendimentoPage() {
                     <option value="alta">Alta</option>
                     <option value="media">Media</option>
                     <option value="baixa">Baixa</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Status inicial</label>
+                  <select className="select" value={form.status} onChange={e => set('status', e.target.value)}>
+                    {STATUS_INICIAL.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                   </select>
                 </div>
               </div>
