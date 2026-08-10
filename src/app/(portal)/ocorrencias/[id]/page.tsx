@@ -6,8 +6,9 @@ import Link from 'next/link'
 import { ArrowLeft, Check, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
-import { STATUS_OCORRENCIA } from '@/lib/constants'
+import { STATUS_OCORRENCIA, IMPACTO_OCORRENCIA } from '@/lib/constants'
 import StatusHelp from '@/components/ocorrencias/StatusHelp'
+import ImpactoHelp from '@/components/ocorrencias/ImpactoHelp'
 
 /*
  * DETALHE DA OCORRÊNCIA — todos os campos, imagens e edição de status.
@@ -51,6 +52,7 @@ export default function OcorrenciaDetailPage() {
   const [registradoPor, setRegistradoPor] = useState<string>('—')
 
   const [novoStatus, setNovoStatus] = useState<string>('')
+  const [novoImpacto, setNovoImpacto] = useState<string>('')
   const [salvando, setSalvando] = useState(false)
   const [okMsg, setOkMsg] = useState(false)
 
@@ -62,6 +64,7 @@ export default function OcorrenciaDetailPage() {
     const oc = data as any
     setO(oc)
     setNovoStatus(oc?.status ?? '')
+    setNovoImpacto(oc?.impacto ?? '')
     setLoading(false)
     if (!oc) return
 
@@ -95,10 +98,14 @@ export default function OcorrenciaDetailPage() {
     }
   }
 
-  async function salvarStatus() {
-    if (!novoStatus || novoStatus === o.status) return
+  const semAlteracao = () => novoStatus === o?.status && (novoImpacto || '') === (o?.impacto || '')
+
+  async function salvar() {
+    if (!novoStatus || semAlteracao()) return
     setSalvando(true)
-    await supabase.from('ocorrencias').update({ status: novoStatus, updated_at: new Date().toISOString() }).eq('id', id)
+    await supabase.from('ocorrencias')
+      .update({ status: novoStatus, impacto: novoImpacto || null, updated_at: new Date().toISOString() })
+      .eq('id', id)
     setSalvando(false)
     setOkMsg(true)
     setTimeout(() => setOkMsg(false), 1500)
@@ -133,6 +140,7 @@ export default function OcorrenciaDetailPage() {
                 <Field label="Tipo de erro">{tipoNome}</Field>
                 <Field label="Data da ocorrência">{fmtDate(o.data_ocorrencia)}</Field>
                 <Field label="Gravidade">{grav.label}</Field>
+                <Field label="Impacto">{o.impacto ? (IMPACTO_OCORRENCIA[o.impacto]?.label ?? o.impacto) : '—'}</Field>
                 <Field label="Empresa">{empresaNome}</Field>
                 <Field label="Atendimento relacionado">
                   {o.ticket_id
@@ -174,7 +182,7 @@ export default function OcorrenciaDetailPage() {
         {/* Sidebar: edição de status */}
         <div className="space-y-4">
           <div className="card">
-            <div className="card-header"><span className="card-title">Status</span></div>
+            <div className="card-header"><span className="card-title">Status e impacto</span></div>
             <div className="card-body space-y-3">
               <div className="form-group">
                 <div className="flex items-center gap-1.5">
@@ -188,12 +196,27 @@ export default function OcorrenciaDetailPage() {
                   <p className="text-xs text-gray-500 mt-1.5">{STATUS_OCORRENCIA[novoStatus].descricao}</p>
                 )}
               </div>
+
+              <div className="form-group">
+                <div className="flex items-center gap-1.5">
+                  <span className="form-label">Impacto</span>
+                  <ImpactoHelp />
+                </div>
+                <select className="select" value={novoImpacto} onChange={e => setNovoImpacto(e.target.value)}>
+                  <option value="">Sem impacto definido</option>
+                  {Object.entries(IMPACTO_OCORRENCIA).map(([v, im]) => <option key={v} value={v}>{im.label}</option>)}
+                </select>
+                {novoImpacto && IMPACTO_OCORRENCIA[novoImpacto] && (
+                  <p className="text-xs text-gray-500 mt-1.5">{IMPACTO_OCORRENCIA[novoImpacto].descricao}</p>
+                )}
+              </div>
+
               <p className="text-xs text-gray-400">
                 O registro nunca é excluído. Para encerrar sem tratativa, defina o status como <strong>Cancelada</strong>.
               </p>
-              <button onClick={salvarStatus} disabled={salvando || novoStatus === o.status}
+              <button onClick={salvar} disabled={salvando || semAlteracao()}
                 className="btn-primary w-full justify-center disabled:opacity-50">
-                {salvando ? 'Salvando...' : okMsg ? <><Check size={14} /> Salvo!</> : 'Salvar status'}
+                {salvando ? 'Salvando...' : okMsg ? <><Check size={14} /> Salvo!</> : 'Salvar alterações'}
               </button>
             </div>
           </div>

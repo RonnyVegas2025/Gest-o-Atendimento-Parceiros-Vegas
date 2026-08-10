@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
-import { STATUS_OCORRENCIA } from '@/lib/constants'
+import { STATUS_OCORRENCIA, IMPACTO_OCORRENCIA } from '@/lib/constants'
 import StatusHelp from '@/components/ocorrencias/StatusHelp'
+import ImpactoHelp from '@/components/ocorrencias/ImpactoHelp'
 
 /*
  * LISTA DE OCORRÊNCIAS. Schema assumido (`ocorrencias`): protocolo, department,
@@ -45,6 +46,7 @@ export default function OcorrenciasPage() {
   const [fDept, setFDept] = useState('')
   const [fTipo, setFTipo] = useState('')
   const [fGrav, setFGrav] = useState('')
+  const [fImpacto, setFImpacto] = useState('')
   const [fStatus, setFStatus] = useState('')
   const [fPeriodo, setFPeriodo] = useState('')
 
@@ -66,8 +68,9 @@ export default function OcorrenciasPage() {
       let query = supabase.from('ocorrencias').select('*').order('data_ocorrencia', { ascending: false }).limit(200)
       if (fDept)   query = query.eq('department', fDept)
       if (fTipo)   query = query.eq('tipo_erro_id', fTipo)
-      if (fGrav)   query = query.eq('gravidade', fGrav)
-      if (fStatus) query = query.eq('status', fStatus)
+      if (fGrav)    query = query.eq('gravidade', fGrav)
+      if (fImpacto) query = query.eq('impacto', fImpacto)
+      if (fStatus)  query = query.eq('status', fStatus)
       if (fPeriodo) {
         const d = new Date(); d.setDate(d.getDate() - parseInt(fPeriodo))
         query = query.gte('data_ocorrencia', d.toISOString().slice(0, 10))
@@ -77,14 +80,14 @@ export default function OcorrenciasPage() {
       setLoading(false)
     }
     load()
-  }, [fDept, fTipo, fGrav, fStatus, fPeriodo])
+  }, [fDept, fTipo, fGrav, fImpacto, fStatus, fPeriodo])
 
   const tiposDoFiltro = useMemo(
     () => (fDept ? tipos.filter(t => t.department === fDept) : tipos),
     [tipos, fDept]
   )
 
-  const COLS = '150px 100px 150px 1fr 100px 110px 150px'
+  const COLS = '150px 90px 130px 1fr 95px 110px 100px 140px'
 
   return (
     <div className="p-6 space-y-4">
@@ -113,6 +116,13 @@ export default function OcorrenciasPage() {
           <option value="alta">Alta</option>
         </select>
         <div className="inline-flex items-center gap-1.5">
+          <select className="select w-40" value={fImpacto} onChange={e => setFImpacto(e.target.value)}>
+            <option value="">Todos os impactos</option>
+            {Object.entries(IMPACTO_OCORRENCIA).map(([v, im]) => <option key={v} value={v}>{im.label}</option>)}
+          </select>
+          <ImpactoHelp />
+        </div>
+        <div className="inline-flex items-center gap-1.5">
           <select className="select w-40" value={fStatus} onChange={e => setFStatus(e.target.value)}>
             <option value="">Todos os status</option>
             {Object.entries(STATUS_OCORRENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
@@ -128,7 +138,7 @@ export default function OcorrenciasPage() {
       <div className="card overflow-hidden">
         <div className="table-header grid text-xs" style={{ gridTemplateColumns: COLS }}>
           <span>Protocolo</span><span>Data</span><span>Departamento</span><span>Título</span>
-          <span>Gravidade</span><span>Status</span><span>Registrado por</span>
+          <span>Gravidade</span><span>Impacto</span><span>Status</span><span>Registrado por</span>
         </div>
 
         {loading ? (
@@ -138,6 +148,7 @@ export default function OcorrenciasPage() {
         ) : ocorrencias.map(o => {
           const grav = GRAVIDADE_CONFIG[o.gravidade] ?? GRAVIDADE_CONFIG.media
           const st = STATUS_OCORRENCIA[o.status] ?? { label: o.status, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
+          const imp = o.impacto ? IMPACTO_OCORRENCIA[o.impacto] : null
           return (
             <Link key={o.id} href={`/ocorrencias/${o.id}`} className="table-row grid hover:bg-blue-50/30" style={{ gridTemplateColumns: COLS }}>
               <span className="font-mono text-xs text-indigo-600 self-center truncate">{o.protocolo || '—'}</span>
@@ -149,6 +160,9 @@ export default function OcorrenciasPage() {
               </div>
               <span className="self-center">
                 <span className={cn('badge', grav.badge)}><span className={cn('w-1.5 h-1.5 rounded-full', grav.dot)} />{grav.label}</span>
+              </span>
+              <span className="self-center">
+                {imp ? <span className={cn('badge', imp.badge)}>{imp.label}</span> : <span className="text-xs text-gray-300">—</span>}
               </span>
               <span className="self-center"><span className={cn('badge', st.badge)}>{st.label}</span></span>
               <span className="text-xs text-gray-500 self-center truncate">{usersMap[o.created_by] ?? '—'}</span>

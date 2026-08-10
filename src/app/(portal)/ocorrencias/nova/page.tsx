@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { ArrowLeft, Info, Search, X } from 'lucide-react'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import { useDepartments } from '@/hooks/useDepartments'
+import { IMPACTO_OCORRENCIA } from '@/lib/constants'
+import ImpactoHelp from '@/components/ocorrencias/ImpactoHelp'
 
 /*
  * NOVA OCORRÊNCIA — registro de erros por departamento (análise de causa raiz).
@@ -14,7 +16,8 @@ import { useDepartments } from '@/hooks/useDepartments'
  *   id, protocolo (trigger trg_ocorrencia_protocol — inserimos vazio e lemos de volta),
  *   department (FK departments.value), tipo_erro_id, titulo, observacao,
  *   imagens (jsonb), empresa_id (uuid) + empresa_nome (text livre, padrão dos tickets),
- *   ticket_id, responsavel_id, gravidade ('baixa'|'media'|'alta'), status,
+ *   ticket_id, responsavel_id, gravidade ('baixa'|'media'|'alta'),
+ *   impacto (opcional: nenhum|retrabalho|parceiro|financeiro), status,
  *   data_ocorrencia, created_by, created_at, updated_at.
  * `tipos_erro`: id, department, nome, descricao, active, created_at.
  */
@@ -66,6 +69,7 @@ export default function NovaOcorrenciaPage() {
     observacao: '',
     responsavel_id: '',
     gravidade: 'media',
+    impacto: '',
     data_ocorrencia: hoje(),
   })
 
@@ -168,6 +172,7 @@ export default function NovaOcorrenciaPage() {
       ticket_id:        selectedTicket?.id ?? null,
       responsavel_id:   form.responsavel_id || null,
       gravidade:        form.gravidade,
+      impacto:          form.impacto || null,
       data_ocorrencia:  form.data_ocorrencia || hoje(),
       status:           'aberta',
       created_by:       currentUserId,
@@ -221,11 +226,21 @@ export default function NovaOcorrenciaPage() {
                 <input className="input" placeholder="Resumo objetivo do erro" value={form.titulo} onChange={e => set('titulo', e.target.value)} required />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="form-group">
                   <label className="form-label">Gravidade *</label>
                   <select className="select" value={form.gravidade} onChange={e => set('gravidade', e.target.value)}>
                     {GRAVIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <div className="flex items-center gap-1.5">
+                    <span className="form-label">Impacto</span>
+                    <ImpactoHelp />
+                  </div>
+                  <select className="select" value={form.impacto} onChange={e => set('impacto', e.target.value)}>
+                    <option value="">Selecione o impacto...</option>
+                    {Object.entries(IMPACTO_OCORRENCIA).map(([v, im]) => <option key={v} value={v}>{im.label}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
