@@ -80,3 +80,21 @@ export const SLA_HOURS: Record<TicketPriority, number> = {
   media: 8,
   baixa: 24,
 }
+
+// Status das ocorrências (registro de erros por departamento) — fonte única de
+// rótulo, cor e descrição, compartilhada entre a lista, o detalhe e a legenda.
+export const STATUS_OCORRENCIA: Record<string, { label: string; badge: string; descricao: string }> = {
+  aberta:      { label: 'Aberta',      badge: 'bg-blue-50 text-blue-700 border border-blue-200',        descricao: 'Registrada, ainda não analisada.' },
+  em_analise:  { label: 'Em análise',  badge: 'bg-amber-50 text-amber-700 border border-amber-200',      descricao: 'Sendo apurada junto ao departamento responsável.' },
+  resolvida:   { label: 'Resolvida',   badge: 'bg-green-100 text-green-800 border border-green-300',      descricao: 'Causa corrigida, não apenas o caso pontual.' },
+  cancelada:   { label: 'Cancelada',   badge: 'bg-red-50 text-red-700 border border-red-200',             descricao: 'Não era erro ou registro feito por engano.' },
+  reincidente: { label: 'Reincidente', badge: 'bg-purple-50 text-purple-700 border border-purple-200',    descricao: 'O mesmo erro voltou a ocorrer após ter sido resolvido.' },
+}
+
+// Impacto das ocorrências — fonte única (rótulo, cor e descrição).
+export const IMPACTO_OCORRENCIA: Record<string, { label: string; badge: string; descricao: string }> = {
+  nenhum:     { label: 'Nenhum',     badge: 'bg-gray-100 text-gray-600 border border-gray-200',     descricao: 'Erro identificado antes de gerar consequência.' },
+  retrabalho: { label: 'Retrabalho', badge: 'bg-amber-50 text-amber-700 border border-amber-200',   descricao: 'Gerou trabalho adicional interno para corrigir.' },
+  parceiro:   { label: 'Parceiro',   badge: 'bg-blue-50 text-blue-700 border border-blue-200',       descricao: 'Chegou ao parceiro ou cliente final.' },
+  financeiro: { label: 'Financeiro', badge: 'bg-red-50 text-red-700 border border-red-200',          descricao: 'Gerou perda ou custo financeiro.' },
+}

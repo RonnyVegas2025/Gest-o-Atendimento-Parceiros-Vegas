@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { LayoutDashboard, Building2, Ticket, Plus, Users, BarChart3, Handshake, Tags } from 'lucide-react'
+import { LayoutDashboard, Building2, Ticket, Plus, Users, BarChart3, Handshake, Tags, AlertTriangle, Bug } from 'lucide-react'
 
 const navItems = [
   { label: 'Visao geral', items: [
@@ -11,6 +11,7 @@ const navItems = [
   { label: 'Operacao', items: [
     { href: '/atendimentos/novo', label: 'Novo atendimento', icon: Plus },
     { href: '/atendimentos',     label: 'Atendimentos',      icon: Ticket },
+    { href: '/ocorrencias',      label: 'Ocorrências',       icon: AlertTriangle },
   ]},
   { label: 'Cadastros', items: [
     { href: '/empresas',  label: 'Empresas',  icon: Building2 },
@@ -19,6 +20,7 @@ const navItems = [
   { label: 'Admin', items: [
     { href: '/relatorios', label: 'Relatorios',         icon: BarChart3 },
     { href: '/tipos',      label: 'Tipos Solicitacao',  icon: Tags },
+    { href: '/tipos-erro', label: 'Tipos de Erro',      icon: Bug },
     { href: '/usuarios',   label: 'Usuarios',           icon: Users },
   ]},
 ]
@@ -46,7 +48,7 @@ export default function Sidebar() {
               {section.items.map(item => {
                 const isActive = item.href === '/atendimentos'
                   ? pathname === '/atendimentos' || (pathname.startsWith('/atendimentos/') && pathname !== '/atendimentos/novo')
-                  : pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                  : pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'))
                 return (
                   <Link key={item.href} href={item.href} className={cn('nav-item', isActive && 'nav-item-active')}>
                     <item.icon size={15} />
