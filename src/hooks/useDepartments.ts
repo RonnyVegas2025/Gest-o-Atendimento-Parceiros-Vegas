@@ -8,26 +8,11 @@ export interface Department {
 }
 
 /**
- * Fallback com os 11 departamentos atuais. Usado enquanto a query carrega e
- * caso ela falhe ou retorne vazio — assim os selects nunca ficam sem opções.
- */
-export const DEPARTMENTS_FALLBACK: Department[] = [
-  { value: 'comercial',   label: 'ADM Comercial' },
-  { value: 'cadastro',    label: 'Cadastro' },
-  { value: 'financeiro',  label: 'Financeiro' },
-  { value: 'operacional', label: 'Operacional' },
-  { value: 'rede',        label: 'Rede' },
-  { value: 'marketing',   label: 'Marketing' },
-  { value: 'juridico',    label: 'Juridico' },
-  { value: 'logistica',   label: 'Logistica' },
-  { value: 'ti_vegas',    label: 'T.I Vegas' },
-  { value: 'ti_ifc',      label: 'T.I IFC' },
-  { value: 'ti_swap',     label: 'T.I Swap' },
-]
-
-/**
  * Busca dinâmica dos departamentos ativos na tabela `departments` do Supabase
  * (colunas: value, label, active), filtrando active = true e ordenando por label.
+ *
+ * Lê SEMPRE do banco — sem fallback hardcoded. Se a query falhar ou a tabela
+ * estiver vazia, a lista fica vazia (os selects não mostram opções).
  *
  * Retorna:
  * - `departments`: lista {value, label} (para selects e .find)
@@ -36,7 +21,7 @@ export const DEPARTMENTS_FALLBACK: Department[] = [
  * - `refetch`: força uma nova busca no banco (ex.: ao abrir um filtro)
  */
 export function useDepartments() {
-  const [departments, setDepartments] = useState<Department[]>(DEPARTMENTS_FALLBACK)
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
 
   const refetch = useCallback(async () => {
@@ -47,12 +32,7 @@ export function useDepartments() {
       .select('value, label, active')
       .eq('active', true)
       .order('label')
-    if (error || !data || data.length === 0) {
-      // Mantém o fallback caso a query falhe ou volte vazia
-      setDepartments(DEPARTMENTS_FALLBACK)
-    } else {
-      setDepartments(data.map((d: any) => ({ value: d.value, label: d.label })))
-    }
+    setDepartments(error || !data ? [] : data.map((d: any) => ({ value: d.value, label: d.label })))
     setLoading(false)
   }, [])
 
