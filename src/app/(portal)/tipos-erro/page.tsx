@@ -18,9 +18,14 @@ interface TipoErro {
 
 const EMPTY = { department: '', nome: '' }
 
+// Gera o `value` do departamento a partir do label: sem acento, minúsculo e
+// espaços viram "_".
+const slugify = (s: string) =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+
 export default function TiposErroPage() {
   const supabase = createClient()
-  const { departments, deptLabels, loading: deptLoading } = useDepartments()
+  const { departments, deptLabels, loading: deptLoading, refetch: refetchDepartments } = useDepartments()
 
   const [tipos, setTipos] = useState<TipoErro[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,6 +34,12 @@ export default function TiposErroPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState(EMPTY)
+
+  // Modal "Novo departamento"
+  const [showDeptModal, setShowDeptModal] = useState(false)
+  const [deptLabel, setDeptLabel] = useState('')
+  const [deptSaving, setDeptSaving] = useState(false)
+  const [deptError, setDeptError] = useState('')
 
   useEffect(() => { fetchTipos() }, [])
 
@@ -78,6 +89,22 @@ export default function TiposErroPage() {
     fetchTipos()
   }
 
+  async function handleSaveDept(e: React.FormEvent) {
+    e.preventDefault()
+    setDeptError('')
+    const label = deptLabel.trim()
+    const value = slugify(label)
+    if (!label) { setDeptError('Informe o nome do departamento.'); return }
+    if (!value) { setDeptError('Não foi possível gerar um código válido a partir do nome.'); return }
+    setDeptSaving(true)
+    const { error: err } = await supabase.from('departments').insert({ value, label, active: true })
+    setDeptSaving(false)
+    if (err) { setDeptError(err.message); return }
+    setShowDeptModal(false)
+    setDeptLabel('')
+    refetchDepartments() // atualiza a lista usada nos selects
+  }
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
@@ -85,7 +112,10 @@ export default function TiposErroPage() {
           <h1 className="text-lg font-semibold text-gray-900">Tipos de Erro</h1>
           <p className="text-xs text-gray-400 mt-0.5">Catálogo de erros por departamento · usados no registro de ocorrências</p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo de erro</button>
+        <div className="flex gap-2">
+          <button onClick={() => { setDeptLabel(''); setDeptError(''); setShowDeptModal(true) }} className="btn"><Plus size={15} /> Novo departamento</button>
+          <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo de erro</button>
+        </div>
       </div>
 
       {loading ? (
@@ -166,6 +196,35 @@ export default function TiposErroPage() {
               <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setShowModal(false)} className="btn">Cancelar</button>
                 <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Salvando...' : editingId ? 'Salvar' : 'Criar tipo'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Novo departamento */}
+      {showDeptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowDeptModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-sm font-semibold text-gray-900">Novo departamento</h2>
+              <button onClick={() => setShowDeptModal(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+            </div>
+            <form onSubmit={handleSaveDept} className="p-6 space-y-4">
+              <div className="form-group">
+                <label className="form-label">Nome do departamento *</label>
+                <input className="input" placeholder="Ex: Suporte N2" value={deptLabel} onChange={e => setDeptLabel(e.target.value)} required autoFocus />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Código (value) — gerado automaticamente</label>
+                <input className="input font-mono bg-gray-50 text-gray-500" value={slugify(deptLabel) || '—'} readOnly />
+                <p className="text-xs text-gray-400 mt-1">Gerado a partir do nome, em minúsculas e sem espaços.</p>
+              </div>
+              {deptError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{deptError}</p>}
+              <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                <button type="button" onClick={() => setShowDeptModal(false)} className="btn">Cancelar</button>
+                <button type="submit" disabled={deptSaving} className="btn-primary">{deptSaving ? 'Salvando...' : 'Criar departamento'}</button>
               </div>
             </form>
           </div>
