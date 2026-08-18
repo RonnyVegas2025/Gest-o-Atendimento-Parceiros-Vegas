@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export interface Department {
@@ -33,31 +33,31 @@ export const DEPARTMENTS_FALLBACK: Department[] = [
  * - `departments`: lista {value, label} (para selects e .find)
  * - `deptLabels`: mapa value -> label (para traduzir códigos em rótulos)
  * - `loading`: true enquanto a query está em andamento
+ * - `refetch`: força uma nova busca no banco (ex.: ao abrir um filtro)
  */
 export function useDepartments() {
   const [departments, setDepartments] = useState<Department[]>(DEPARTMENTS_FALLBACK)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    let active = true
+  const refetch = useCallback(async () => {
+    setLoading(true)
     const supabase = createClient()
-    supabase
+    const { data, error } = await supabase
       .from('departments')
       .select('value, label, active')
       .eq('active', true)
       .order('label')
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error || !data || data.length === 0) {
-          // Mantém o fallback caso a query falhe ou volte vazia
-          setDepartments(DEPARTMENTS_FALLBACK)
-        } else {
-          setDepartments(data.map((d: any) => ({ value: d.value, label: d.label })))
-        }
-        setLoading(false)
-      })
-    return () => { active = false }
+    if (error || !data || data.length === 0) {
+      // Mantém o fallback caso a query falhe ou volte vazia
+      setDepartments(DEPARTMENTS_FALLBACK)
+    } else {
+      setDepartments(data.map((d: any) => ({ value: d.value, label: d.label })))
+    }
+    setLoading(false)
   }, [])
+
+  // Busca inicial na montagem
+  useEffect(() => { refetch() }, [refetch])
 
   const deptLabels = useMemo(() => {
     const map: Record<string, string> = {}
@@ -65,5 +65,5 @@ export function useDepartments() {
     return map
   }, [departments])
 
-  return { departments, deptLabels, loading }
+  return { departments, deptLabels, loading, refetch }
 }
