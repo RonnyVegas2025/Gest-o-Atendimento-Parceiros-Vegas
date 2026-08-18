@@ -3,12 +3,13 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { ArrowLeft, Check, Clock } from 'lucide-react'
+import { ArrowLeft, Check, Clock, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
 import { STATUS_OCORRENCIA, IMPACTO_OCORRENCIA } from '@/lib/constants'
 import StatusHelp from '@/components/ocorrencias/StatusHelp'
 import ImpactoHelp from '@/components/ocorrencias/ImpactoHelp'
+import PasteTextarea from '@/components/ui/PasteTextarea'
 
 /*
  * DETALHE DA OCORRÊNCIA — todos os campos, imagens e edição de status.
@@ -56,7 +57,28 @@ export default function OcorrenciaDetailPage() {
   const [salvando, setSalvando] = useState(false)
   const [okMsg, setOkMsg] = useState(false)
 
+  // Solução aplicada
+  const [currentUserId, setCurrentUserId] = useState<string>('')
+  const [usuarios, setUsuarios] = useState<{ id: string; full_name: string }[]>([])
+  const [solucao, setSolucao] = useState('')
+  const [resolvidoPor, setResolvidoPor] = useState('')
+  const [resolvidoPorNome, setResolvidoPorNome] = useState<string>('—')
+  const [solImgs, setSolImgs] = useState<string[]>([])
+  const [solError, setSolError] = useState('')
+
   useEffect(() => { fetchData() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id])
+
+  // Usuário logado + lista de usuários (para "Resolvido por")
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase.from('users_profile').select('id').eq('email', user.email ?? '').maybeSingle()
+      if ((data as any)?.id) setCurrentUserId((data as any).id)
+    })
+    supabase.from('users_profile').select('id, full_name').order('full_name')
+      .then(({ data }) => setUsuarios((data as any[]) ?? []))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function fetchData() {
     setLoading(true)
@@ -65,8 +87,17 @@ export default function OcorrenciaDetailPage() {
     setO(oc)
     setNovoStatus(oc?.status ?? '')
     setNovoImpacto(oc?.impacto ?? '')
+    setSolucao(oc?.solucao ?? '')
+    setResolvidoPor(oc?.resolvido_por ?? '')
+    setSolError('')
+    setSolImgs([])
     setLoading(false)
     if (!oc) return
+
+    if (oc.resolvido_por) {
+      supabase.from('users_profile').select('full_name').eq('id', oc.resolvido_por).maybeSingle()
+        .then(({ data }) => setResolvidoPorNome((data as any)?.full_name ?? '—'))
+    }
 
     if (oc.tipo_erro_id) {
       supabase.from('tipos_erro').select('nome').eq('id', oc.tipo_erro_id).maybeSingle()
@@ -98,14 +129,38 @@ export default function OcorrenciaDetailPage() {
     }
   }
 
-  const semAlteracao = () => novoStatus === o?.status && (novoImpacto || '') === (o?.impacto || '')
+  const efResolvidoPor = () => resolvidoPor || currentUserId
+
+  function nadaMudou() {
+    return novoStatus === o?.status
+      && (novoImpacto || '') === (o?.impacto || '')
+      && solucao.trim() === (o?.solucao || '').trim()
+      && (efResolvidoPor() || '') === (o?.resolvido_por || '')
+  }
 
   async function salvar() {
-    if (!novoStatus || semAlteracao()) return
+    if (!novoStatus) return
+    // Solução obrigatória ao marcar como Resolvida — bloqueia com mensagem junto ao campo.
+    if (novoStatus === 'resolvida' && !solucao.trim()) {
+      setSolError('Para marcar como Resolvida, descreva a solução aplicada.')
+      return
+    }
+    setSolError('')
+    if (nadaMudou()) return
     setSalvando(true)
-    await supabase.from('ocorrencias')
-      .update({ status: novoStatus, impacto: novoImpacto || null, updated_at: new Date().toISOString() })
-      .eq('id', id)
+    const update: Record<string, any> = {
+      status:     novoStatus,
+      impacto:    novoImpacto || null,
+      solucao:    solucao.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    // Carimba resolvido_em/por SOMENTE ao gravar como Resolvida. Ao sair de Resolvida
+    // para outro status, não mexe nesses campos — mantém o histórico da solução.
+    if (novoStatus === 'resolvida') {
+      update.resolvido_por = efResolvidoPor() || null
+      update.resolvido_em  = new Date().toISOString()
+    }
+    await supabase.from('ocorrencias').update(update).eq('id', id)
     setSalvando(false)
     setOkMsg(true)
     setTimeout(() => setOkMsg(false), 1500)
@@ -177,6 +232,50 @@ export default function OcorrenciaDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Solução aplicada */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title"><Wrench size={14} /> Solução aplicada</span>
+              {o.resolvido_em && (
+                <span className="text-xs text-gray-400">
+                  Resolvido em {new Date(o.resolvido_em).toLocaleString('pt-BR')} · {resolvidoPorNome}
+                </span>
+              )}
+            </div>
+            <div className="card-body space-y-4">
+              <div className="form-group">
+                <label className="form-label">O que foi feito para corrigir{novoStatus === 'resolvida' ? ' *' : ''}</label>
+                <PasteTextarea
+                  value={solucao}
+                  onChange={setSolucao}
+                  onImagesChange={setSolImgs}
+                  placeholder="Descreva a correção da causa (não apenas o caso pontual). Ctrl+V para colar prints..."
+                  rows={4}
+                />
+                {solImgs.length > 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-1">
+                    ⚠ As imagens da solução ainda não são salvas — falta a coluna <code>solucao_imagens</code> no banco. O texto da solução é salvo normalmente.
+                  </p>
+                )}
+                {solError && (
+                  <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100 mt-1">{solError}</p>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Resolvido por</label>
+                <select className="select" value={resolvidoPor || currentUserId} onChange={e => setResolvidoPor(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  {usuarios.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                </select>
+              </div>
+
+              <p className="text-xs text-gray-400">
+                A solução é salva junto com o status (botão “Salvar alterações”). Ao marcar <strong>Resolvida</strong> a solução é obrigatória; se o status sair de Resolvida, o texto é mantido.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Sidebar: edição de status */}
@@ -214,7 +313,7 @@ export default function OcorrenciaDetailPage() {
               <p className="text-xs text-gray-400">
                 O registro nunca é excluído. Para encerrar sem tratativa, defina o status como <strong>Cancelada</strong>.
               </p>
-              <button onClick={salvar} disabled={salvando || semAlteracao()}
+              <button onClick={salvar} disabled={salvando || nadaMudou()}
                 className="btn-primary w-full justify-center disabled:opacity-50">
                 {salvando ? 'Salvando...' : okMsg ? <><Check size={14} /> Salvo!</> : 'Salvar alterações'}
               </button>
