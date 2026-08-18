@@ -35,7 +35,7 @@ function fmtDate(d: string | null) {
 
 export default function OcorrenciasPage() {
   const supabase = createClient()
-  const { deptLabels, departments } = useDepartments()
+  const { deptLabels, departments, refetch: refetchDepartments } = useDepartments()
 
   const [ocorrencias, setOcorrencias] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,7 +101,10 @@ export default function OcorrenciasPage() {
 
       {/* Filtros */}
       <div className="flex items-center gap-2 flex-wrap">
-        <select className="select w-44" value={fDept} onChange={e => { setFDept(e.target.value); setFTipo('') }}>
+        <select className="select w-44" value={fDept}
+          onFocus={() => refetchDepartments()}
+          onMouseDown={() => refetchDepartments()}
+          onChange={e => { setFDept(e.target.value); setFTipo('') }}>
           <option value="">Todos os depto.</option>
           {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
