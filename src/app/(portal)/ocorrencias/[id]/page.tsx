@@ -89,6 +89,7 @@ export default function OcorrenciaDetailPage() {
   const ticketBoxRef = useRef<HTMLDivElement>(null)
 
   const [obsImgs, setObsImgs] = useState<string[]>([])
+  const [solImgs, setSolImgs] = useState<string[]>([])
   const [registradoPor, setRegistradoPor] = useState<string>('—')
   const [historico, setHistorico] = useState<HistoricoItem[]>([])
 
@@ -145,6 +146,7 @@ export default function OcorrenciaDetailPage() {
       resolvido_por: oc.resolvido_por ?? '',
     })
     setObsImgs([])
+    setSolImgs([])
     setError(''); setSolError('')
 
     if (oc.created_by) {
@@ -281,6 +283,8 @@ export default function OcorrenciaDetailPage() {
 
     const existingImgs: string[] = Array.isArray(o.imagens) ? o.imagens : []
     const mergedImgs = Array.from(new Set([...existingImgs, ...obsImgs]))
+    const existingSolImgs: string[] = Array.isArray(o.solucao_imagens) ? o.solucao_imagens : []
+    const mergedSolImgs = Array.from(new Set([...existingSolImgs, ...solImgs]))
 
     const update: Record<string, any> = {
       department: form.department,
@@ -297,6 +301,7 @@ export default function OcorrenciaDetailPage() {
       status: form.status,
       solucao: form.solucao.trim() || null,
       imagens: mergedImgs.length ? mergedImgs : null,
+      solucao_imagens: mergedSolImgs,
       updated_at: alteradoEm,
     }
     // Carimba a resolução apenas na transição para "resolvida" (mantém o histórico ao sair).
@@ -325,6 +330,7 @@ export default function OcorrenciaDetailPage() {
   const grav = GRAV_LABEL[o.gravidade] ? { label: GRAV_LABEL[o.gravidade] } : { label: o.gravidade }
   const st = STATUS_OCORRENCIA[o.status] ?? { label: o.status, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
   const existingImgs: string[] = Array.isArray(o.imagens) ? o.imagens : []
+  const existingSolImgs: string[] = Array.isArray(o.solucao_imagens) ? o.solucao_imagens : []
 
   return (
     <div className="p-6">
@@ -482,9 +488,21 @@ export default function OcorrenciaDetailPage() {
             <div className="card-body space-y-4">
               <div className="form-group">
                 <label className="form-label">O que foi feito para corrigir{form.status === 'resolvida' ? ' *' : ''}</label>
-                <PasteTextarea value={form.solucao} onChange={v => set('solucao', v)}
-                  placeholder="Descreva a correção da causa (não apenas o caso pontual)." rows={4} />
+                <PasteTextarea value={form.solucao} onChange={v => set('solucao', v)} onImagesChange={setSolImgs}
+                  placeholder="Descreva a correção da causa (não apenas o caso pontual). Ctrl+V para colar prints..." rows={4} />
                 {solError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100 mt-1">{solError}</p>}
+                {existingSolImgs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs text-gray-400 mb-1">Imagens já anexadas ({existingSolImgs.length}) — novas coladas são adicionadas</div>
+                    <div className="flex flex-wrap gap-2">
+                      {existingSolImgs.map((url, i) => (
+                        <img key={i} src={url} alt={`Solução ${i + 1}`}
+                          className="h-20 w-auto max-w-[160px] rounded-lg border border-gray-200 cursor-pointer hover:opacity-90"
+                          onClick={() => window.open(url, '_blank')} />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Resolvido por</label>
