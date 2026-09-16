@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, History, Search, Eye, X, ExternalLink, Lock } from 'lucide-react'
+import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasEmAberto, fmtBRL, fmtDateBR, fmtMes, normKey,
@@ -53,6 +53,7 @@ export default function InadimplenciaPage() {
   const [loading, setLoading] = useState(true)
   const [parceiros, setParceiros] = useState<string[]>([])
   const [selected, setSelected] = useState<any | null>(null)
+  const [emailOpen, setEmailOpen] = useState(false)
 
   const [fParceiro, setFParceiro] = useState('')
   const [fSituacao, setFSituacao] = useState('em_aberto')
@@ -112,6 +113,9 @@ export default function InadimplenciaPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link href="/inadimplencia/importacoes" className="btn"><History size={15} /> Importações</Link>
+          <button type="button" onClick={() => setEmailOpen(true)} disabled={filtered.length === 0}
+            title={filtered.length === 0 ? 'Nenhum título no filtro atual para gerar o e-mail' : undefined}
+            className="btn disabled:opacity-50 disabled:cursor-not-allowed"><Mail size={15} /> Gerar e-mail</button>
           <Link href="/inadimplencia/importar" className="btn-primary"><Upload size={15} /> Importar planilha</Link>
         </div>
       </div>
@@ -203,6 +207,7 @@ export default function InadimplenciaPage() {
       </div>
 
       {selected && <DetalheDrawer row={selected} onClose={() => setSelected(null)} />}
+      {emailOpen && <EmailModal rows={filtered} parceiro={fParceiro} situacao={fSituacao} onClose={() => setEmailOpen(false)} />}
     </div>
   )
 }
@@ -358,3 +363,189 @@ function Campo({ label, children, full, wrap }: { label: string; children: React
 }
 
 const disp = (s: unknown) => (s !== null && s !== undefined && String(s).trim() !== '' ? String(s) : '—')
+
+// ————————————————————————————————————————————————————————————————
+// Geração de e-mail de cobrança (nada é enviado — apenas copiado).
+//
+// SEGURANÇA: o e-mail é para destinatário EXTERNO. Ele é montado a partir de
+// uma lista EXPLÍCITA de campos permitidos (empresa, ID, vencimento, valor,
+// status de bloqueio) — nunca iterando o objeto inteiro. Assim, campos do
+// bloco "Informações internas" (data de liquidação, pagamento com juros,
+// status de cartório, quitado em, primeira/última detecção) nunca entram.
+// ————————————————————————————————————————————————————————————————
+interface EmailRow { empresa: string; id: string; venc: string; valor: number | null; status: string }
+
+function linhasPermitidas(rows: any[]): EmailRow[] {
+  return [...rows]
+    .sort((a, b) => String(a.vencimento ?? '').localeCompare(String(b.vencimento ?? '')))
+    .map(r => ({
+      empresa: (r.razao_social_planilha ?? '').toString().trim() || '—',
+      id: (r.id_produto_raw ?? '').toString().trim() || '—',
+      venc: fmtDateBR(r.vencimento),
+      valor: typeof r.valor === 'number' ? r.valor : (r.valor != null ? Number(r.valor) : null),
+      status: (r.status_bloqueio ?? '').toString().trim() || '—',
+    }))
+}
+
+function assuntoEmail(parceiro: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  return `Títulos em aberto — ${alvo} — ${new Date().toLocaleDateString('pt-BR')}`
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// HTML autocontido com estilos inline — CSS vars não sobrevivem ao colar no
+// Outlook, então as cores da tabela (cinzas neutros, sem marca) ficam inline.
+function corpoEmailHtml(linhas: EmailRow[], parceiro: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const qtd = linhas.length
+  const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
+  const th = 'style="text-align:left;border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;"'
+  const td = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;"'
+  const tdR = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;text-align:right;white-space:nowrap;"'
+  const linhasHtml = linhas.map(l => (
+    `<tr><td ${td}>${esc(l.empresa)}</td><td ${td}>${esc(l.id)}</td>` +
+    `<td ${tdR}>${esc(l.venc)}</td><td ${tdR}>${esc(fmtBRL(l.valor))}</td><td ${td}>${esc(l.status)}</td></tr>`
+  )).join('')
+  return (
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222222;line-height:1.5;">` +
+    `<p>Prezados,</p>` +
+    `<p>Segue a relação de títulos em aberto${parceiro ? ` referente a ${esc(alvo)}` : ''}. ` +
+    `Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.</p>` +
+    `<table style="border-collapse:collapse;font-size:13px;">` +
+    `<thead><tr><th ${th}>Empresa</th><th ${th}>ID</th><th ${th}>Vencimento</th><th ${th}>Valor</th><th ${th}>Status de bloqueio</th></tr></thead>` +
+    `<tbody>${linhasHtml}</tbody>` +
+    `<tfoot><tr>` +
+    `<td colspan="3" style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;">Total — ${qtd} título${qtd === 1 ? '' : 's'}</td>` +
+    `<td style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;white-space:nowrap;">${esc(fmtBRL(soma))}</td>` +
+    `<td style="border:1px solid #cccccc;background:#f2f2f7;"></td>` +
+    `</tr></tfoot></table>` +
+    `<p>Permanecemos à disposição para quaisquer esclarecimentos.</p>` +
+    `<p>Atenciosamente,<br/>Vegas Card</p>` +
+    `</div>`
+  )
+}
+
+// Fallback text/plain — tabela alinhada por espaçamento.
+function corpoEmailTexto(linhas: EmailRow[], parceiro: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const header = ['Empresa', 'ID', 'Vencimento', 'Valor', 'Status de bloqueio']
+  const data = linhas.map(l => [l.empresa, l.id, l.venc, fmtBRL(l.valor), l.status])
+  const widths = header.map((h, i) => Math.max(h.length, ...data.map(r => r[i].length)))
+  const pad = (s: string, w: number, right = false) => (right ? s.padStart(w) : s.padEnd(w))
+  const linha = (cells: string[]) => cells.map((c, i) => pad(c, widths[i], i === 3)).join('  ').trimEnd()
+  const regua = widths.map(w => '-'.repeat(w)).join('  ')
+  const qtd = linhas.length
+  const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
+  return [
+    'Prezados,',
+    '',
+    `Segue a relação de títulos em aberto${parceiro ? ` referente a ${alvo}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.`,
+    '',
+    linha(header),
+    regua,
+    ...data.map(linha),
+    regua,
+    `Total: ${qtd} título${qtd === 1 ? '' : 's'} — ${fmtBRL(soma)}`,
+    '',
+    'Permanecemos à disposição para quaisquer esclarecimentos.',
+    '',
+    'Atenciosamente,',
+    'Vegas Card',
+  ].join('\n')
+}
+
+async function copiarRico(html: string, texto: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && typeof window !== 'undefined' && 'ClipboardItem' in window) {
+      const item = new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([texto], { type: 'text/plain' }),
+      })
+      await navigator.clipboard.write([item])
+      return true
+    }
+  } catch { /* cai no fallback text/plain */ }
+  try { await navigator.clipboard.writeText(texto); return true } catch { return false }
+}
+
+function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parceiro: string; situacao: string; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const [copiado, setCopiado] = useState<'assunto' | 'corpo' | null>(null)
+
+  const onKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
+  useEffect(() => {
+    document.addEventListener('keydown', onKey)
+    closeRef.current?.focus()
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onKey])
+
+  const linhas = useMemo(() => linhasPermitidas(rows), [rows])
+  const assunto = useMemo(() => assuntoEmail(parceiro), [parceiro])
+  const html = useMemo(() => corpoEmailHtml(linhas, parceiro), [linhas, parceiro])
+  const texto = useMemo(() => corpoEmailTexto(linhas, parceiro), [linhas, parceiro])
+  const incluiQuitados = situacao !== 'em_aberto'
+
+  function flash(qual: 'assunto' | 'corpo') { setCopiado(qual); setTimeout(() => setCopiado(c => (c === qual ? null : c)), 1500) }
+  async function copiarAssunto() { try { await navigator.clipboard.writeText(assunto); flash('assunto') } catch { /* ignore */ } }
+  async function copiarCorpo() { if (await copiarRico(html, texto)) flash('corpo') }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Gerar e-mail de cobrança">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} aria-hidden="true" />
+      <div className="relative w-full max-w-3xl max-h-[85vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden">
+        <div className="h-[3px] bg-vg-institucional" />
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Gerar e-mail de cobrança</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{linhas.length} título(s) do filtro atual · nada é enviado, apenas copiado</p>
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Fechar"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {incluiQuitados && (
+            <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+              <span>O filtro de situação não está em <b>Em aberto</b>, então o e-mail pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
+            </div>
+          )}
+
+          {/* Assunto */}
+          <div className="form-group">
+            <label className="form-label">Assunto</label>
+            <div className="flex items-center gap-2">
+              <input className="input flex-1" readOnly value={assunto} onFocus={e => e.currentTarget.select()} />
+              <button type="button" onClick={copiarAssunto} className="btn whitespace-nowrap">
+                {copiado === 'assunto' ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar</>}
+              </button>
+            </div>
+          </div>
+
+          {/* Corpo — prévia renderizada (igual ao que será colado) */}
+          <div className="form-group">
+            <div className="flex items-center justify-between mb-1">
+              <label className="form-label mb-0">Corpo do e-mail</label>
+              <button type="button" onClick={copiarCorpo} className="btn btn-sm">
+                {copiado === 'corpo' ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar corpo</>}
+              </button>
+            </div>
+            <div className="border border-gray-200 rounded-xl p-4 overflow-x-auto bg-white">
+              <div dangerouslySetInnerHTML={{ __html: html }} />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Copiado como HTML (com fallback em texto): ao colar no Outlook, a tabela mantém a formatação.</p>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+          <button type="button" onClick={onClose} className="btn">Fechar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
