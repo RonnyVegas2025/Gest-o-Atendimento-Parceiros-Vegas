@@ -3,8 +3,8 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2 } from 'lucide-react'
+import { cn, formatDate } from '@/lib/utils'
 import {
   SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasEmAberto, fmtBRL, fmtDateBR, fmtMes, normKey,
 } from '@/lib/inadimplencia'
@@ -54,6 +54,7 @@ export default function InadimplenciaPage() {
   const [parceiros, setParceiros] = useState<string[]>([])
   const [selected, setSelected] = useState<any | null>(null)
   const [emailOpen, setEmailOpen] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const [fParceiro, setFParceiro] = useState('')
   const [fSituacao, setFSituacao] = useState('em_aberto')
@@ -84,7 +85,7 @@ export default function InadimplenciaPage() {
       setLoading(false)
     }
     load()
-  }, [fParceiro, fSituacao, fDe, fAte])
+  }, [fParceiro, fSituacao, fDe, fAte, reloadKey])
 
   const filtered = useMemo(() => {
     const q = normKey(busca)
@@ -206,7 +207,7 @@ export default function InadimplenciaPage() {
         )}
       </div>
 
-      {selected && <DetalheDrawer row={selected} onClose={() => setSelected(null)} />}
+      {selected && <DetalheDrawer row={selected} onClose={() => setSelected(null)} onChanged={() => setReloadKey(k => k + 1)} />}
       {emailOpen && <EmailModal rows={filtered} parceiro={fParceiro} situacao={fSituacao} onClose={() => setEmailOpen(false)} />}
     </div>
   )
@@ -215,11 +216,26 @@ export default function InadimplenciaPage() {
 // ————————————————————————————————————————————————————————————————
 // Drawer de detalhe (somente leitura): Esc e clique fora fecham; foco visível.
 // ————————————————————————————————————————————————————————————————
-function DetalheDrawer({ row, onClose }: { row: any; onClose: () => void }) {
+function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => void; onChanged?: () => void }) {
   const supabase = createClient()
   const closeRef = useRef<HTMLButtonElement>(null)
   const [empresaNome, setEmpresaNome] = useState<string | null>(null)
   const [motivo, setMotivo] = useState<string | null>(null)
+
+  // Situação/quitado_em locais — refletem o ajuste manual sem recarregar a tela
+  const [situacao, setSituacao] = useState<string>(row.situacao)
+  const [quitadoEm, setQuitadoEm] = useState<string | null>(row.quitado_em ?? null)
+
+  // Ajustes manuais (histórico) + apoio
+  const [ajustes, setAjustes] = useState<any[]>([])
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({})
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
+  // Fluxo de confirmação do ajuste
+  const [confirmando, setConfirmando] = useState(false)
+  const [motivoAjuste, setMotivoAjuste] = useState('')
+  const [salvandoAjuste, setSalvandoAjuste] = useState(false)
+  const [ajusteErro, setAjusteErro] = useState('')
 
   // Esc fecha
   const onKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
@@ -228,6 +244,26 @@ function DetalheDrawer({ row, onClose }: { row: any; onClose: () => void }) {
     closeRef.current?.focus()
     return () => document.removeEventListener('keydown', onKey)
   }, [onKey])
+
+  // Carrega ajustes manuais, nomes e usuário logado
+  const carregarAjustes = useCallback(async () => {
+    const { data } = await supabase.from('inadimplencia_ajustes').select('*')
+      .eq('inadimplencia_id', row.id).order('ajustado_em', { ascending: false })
+    setAjustes((data as any[]) ?? [])
+  }, [row.id, supabase])
+
+  useEffect(() => {
+    carregarAjustes()
+    supabase.from('users_profile').select('id, full_name').then(({ data }) => {
+      setUsersMap(Object.fromEntries(((data as any[]) ?? []).map(u => [u.id, u.full_name])))
+    })
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data } = await supabase.from('users_profile').select('id').eq('email', user.email).maybeSingle()
+      setCurrentUserId((data as any)?.id ?? null)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.id])
 
   // Resolve o vínculo: nome da empresa (quando houver) ou o motivo da ausência.
   useEffect(() => {
@@ -257,8 +293,42 @@ function DetalheDrawer({ row, onClose }: { row: any; onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.id])
 
-  const sit = SITUACAO_INADIMPLENCIA[row.situacao] ?? { label: row.situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
-  const dias = row.situacao === 'em_aberto' ? diasEmAberto(row.vencimento) : null
+  const sit = SITUACAO_INADIMPLENCIA[situacao] ?? { label: situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
+  const dias = situacao === 'em_aberto' ? diasEmAberto(row.vencimento) : null
+
+  // Alvo da reversão manual: alterna entre em_aberto e quitado.
+  const novaSituacao = situacao === 'quitado' ? 'em_aberto' : 'quitado'
+
+  async function aplicarAjuste() {
+    const mot = motivoAjuste.trim()
+    if (!mot) { setAjusteErro('Informe o motivo do ajuste.'); return }
+    setSalvandoAjuste(true); setAjusteErro('')
+    const agora = new Date().toISOString()
+    const novoQuitadoEm = novaSituacao === 'quitado' ? agora : null
+
+    const { error: upErr } = await supabase.from('inadimplencias')
+      .update({ situacao: novaSituacao, quitado_em: novoQuitadoEm, atualizado_em: agora }).eq('id', row.id)
+    if (upErr) { setSalvandoAjuste(false); setAjusteErro('Erro ao atualizar a situação: ' + upErr.message); return }
+
+    const { error: hErr } = await supabase.from('inadimplencia_ajustes').insert({
+      inadimplencia_id: row.id,
+      situacao_anterior: situacao,
+      situacao_nova: novaSituacao,
+      motivo: mot,
+      ajustado_por: currentUserId,
+      ajustado_em: agora,
+    })
+    // A situação já foi alterada; se o histórico falhar, avisa mas não reverte.
+    if (hErr) setAjusteErro('Situação alterada, mas houve erro ao gravar o histórico: ' + hErr.message)
+
+    setSituacao(novaSituacao)
+    setQuitadoEm(novoQuitadoEm)
+    setConfirmando(false)
+    setMotivoAjuste('')
+    setSalvandoAjuste(false)
+    carregarAjustes()
+    onChanged?.()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Detalhe do título">
@@ -313,13 +383,89 @@ function DetalheDrawer({ row, onClose }: { row: any; onClose: () => void }) {
             <Campo label="Status de bloqueio" full wrap>{disp(row.status_bloqueio)}</Campo>
           </Bloco>
 
-          {/* Bloco 2 — Informações internas (oculto no futuro para parceiro externo) */}
-          {MOSTRAR_INFO_INTERNA && <BlocoInformacoesInternas row={row} />}
+          {/* Bloco 2 — Informações internas + histórico de ajustes manuais
+              (oculto no futuro para parceiro externo) */}
+          {MOSTRAR_INFO_INTERNA && (
+            <>
+              <BlocoInformacoesInternas row={{ ...row, situacao, quitado_em: quitadoEm }} />
+              <BlocoAjustes ajustes={ajustes} usersMap={usersMap} />
+            </>
+          )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400">Visualização somente leitura.</div>
+        {/* Rodapé — reversão manual da situação (separado do conteúdo somente leitura) */}
+        <div className="px-5 py-3 border-t border-gray-100">
+          {!confirmando ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-400">Conteúdo acima é somente leitura.</span>
+              <button type="button" onClick={() => { setConfirmando(true); setAjusteErro('') }}
+                className="btn btn-sm whitespace-nowrap">
+                {situacao === 'quitado' ? <><RotateCcw size={14} /> Reabrir título</> : <><CheckCircle2 size={14} /> Marcar como quitado</>}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-700">
+                Alterar situação de <span className="font-medium">{SITUACAO_INADIMPLENCIA[situacao]?.label ?? situacao}</span>
+                {' '}para <span className="font-medium">{SITUACAO_INADIMPLENCIA[novaSituacao]?.label ?? novaSituacao}</span>?
+              </p>
+              <p className="text-xs text-gray-400">
+                A próxima importação continua mandando: se este título não vier no próximo arquivo, volta a ser quitado automaticamente. O ajuste corrige apenas o intervalo até lá.
+              </p>
+              <div className="form-group">
+                <label className="form-label" htmlFor="motivo-ajuste">Motivo (obrigatório)</label>
+                <input id="motivo-ajuste" className="input" value={motivoAjuste} autoFocus
+                  onChange={e => setMotivoAjuste(e.target.value)}
+                  placeholder="Ex.: quitação confirmada fora da planilha; erro na última importação..." />
+              </div>
+              {ajusteErro && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{ajusteErro}</p>}
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={aplicarAjuste} disabled={salvandoAjuste || !motivoAjuste.trim()}
+                  className="btn-primary disabled:opacity-50">
+                  {salvandoAjuste ? 'Aplicando...' : 'Confirmar'}
+                </button>
+                <button type="button" onClick={() => { setConfirmando(false); setMotivoAjuste(''); setAjusteErro('') }}
+                  disabled={salvandoAjuste} className="btn">Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  )
+}
+
+/*
+ * Histórico de ajustes MANUAIS de situação (interno). Renderizado apenas sob
+ * MOSTRAR_INFO_INTERNA, junto do bloco de informações internas.
+ */
+function BlocoAjustes({ ajustes, usersMap }: { ajustes: any[]; usersMap: Record<string, string> }) {
+  return (
+    <section>
+      <div className="flex items-center gap-1.5 mb-2">
+        <History size={13} className="text-gray-400" />
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ajustes manuais de situação</h3>
+      </div>
+      {ajustes.length === 0 ? (
+        <p className="text-xs text-gray-400">Nenhum ajuste manual neste título.</p>
+      ) : (
+        <ol className="space-y-2">
+          {ajustes.map(a => (
+            <li key={a.id} className="text-sm text-gray-700 border-l-2 border-gray-200 pl-3">
+              <div>
+                <span className="text-gray-500">{SITUACAO_INADIMPLENCIA[a.situacao_anterior]?.label ?? a.situacao_anterior}</span>
+                <span className="text-gray-400"> → </span>
+                <span className="font-medium text-gray-900">{SITUACAO_INADIMPLENCIA[a.situacao_nova]?.label ?? a.situacao_nova}</span>
+              </div>
+              {a.motivo && <div className="text-xs text-gray-600 mt-0.5 break-words">{a.motivo}</div>}
+              <div className="text-xs text-gray-400 mt-0.5">
+                {usersMap[a.ajustado_por] ?? '—'} · {formatDate(a.ajustado_em)}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   )
 }
 
