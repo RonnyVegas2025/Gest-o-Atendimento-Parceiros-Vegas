@@ -199,20 +199,30 @@ export default function ImportarInadimplenciaPage() {
       if (impErr) throw new Error('Erro ao registrar a importação: ' + impErr.message)
       const importacaoId = (imp as any).id
 
-      // Preserva primeira_deteccao dos existentes
+      // Preserva primeira_deteccao e os campos editáveis manualmente dos existentes.
       const parceiros = Array.from(new Set(preview.rows.map(r => r.linha.parceiro_planilha).filter((v): v is string => !!v)))
       const primeiraByKey = new Map<string, string>()
+      const existByKey = new Map<string, any>()
       for (const part of chunk(parceiros, 100)) {
         const { data } = await supabase.from('inadimplencias')
-          .select('id_produto_raw, vencimento, valor, primeira_deteccao')
+          .select('id_produto_raw, vencimento, valor, primeira_deteccao, status_bloqueio, status_cartorio, data_liquidacao, pagamento_com_juros')
           .in('parceiro_planilha', part).limit(20000)
-        for (const r of (data as any[]) ?? []) primeiraByKey.set(chaveUnica(r), r.primeira_deteccao ?? agora)
+        for (const r of (data as any[]) ?? []) {
+          const k = chaveUnica(r)
+          primeiraByKey.set(k, r.primeira_deteccao ?? agora)
+          existByKey.set(k, r)
+        }
       }
 
-      // Upsert das linhas (novas + atualização das existentes) pela chave única
+      // Upsert das linhas (novas + atualização das existentes) pela chave única.
+      // Para status_bloqueio, status_cartorio, data_liquidacao e pagamento_com_juros,
+      // a planilha só sobrescreve quando a célula vier preenchida — célula vazia
+      // NÃO apaga o valor existente (mantém o que foi editado manualmente).
+      // A importação nunca toca em `anotacao`.
       const payload = preview.rows.map(r => {
         const l = r.linha
         const key = chaveUnica(l)
+        const prev = existByKey.get(key)
         return {
           id_produto_raw: l.id_produto_raw,
           produto_id: l.produto_id,
@@ -226,10 +236,10 @@ export default function ImportarInadimplenciaPage() {
           tipo: l.tipo,
           banco: l.banco,
           situacao_cadastro: l.situacao_cadastro,
-          status_bloqueio: l.status_bloqueio,
-          status_cartorio: l.status_cartorio,
-          data_liquidacao: l.data_liquidacao,
-          pagamento_com_juros: l.pagamento_com_juros,
+          status_bloqueio: l.status_bloqueio ?? prev?.status_bloqueio ?? null,
+          status_cartorio: l.status_cartorio ?? prev?.status_cartorio ?? null,
+          data_liquidacao: l.data_liquidacao ?? prev?.data_liquidacao ?? null,
+          pagamento_com_juros: l.pagamento_com_juros ?? prev?.pagamento_com_juros ?? null,
           empresa_id: r.empresa_id,
           situacao: 'em_aberto',
           quitado_em: null,

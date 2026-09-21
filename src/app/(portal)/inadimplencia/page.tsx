@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2 } from 'lucide-react'
+import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2, Pencil } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
   SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasEmAberto, fmtBRL, fmtDateBR, fmtMes, normKey,
@@ -226,8 +226,9 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
   const [situacao, setSituacao] = useState<string>(row.situacao)
   const [quitadoEm, setQuitadoEm] = useState<string | null>(row.quitado_em ?? null)
 
-  // Ajustes manuais (histórico) + apoio
+  // Ajustes manuais (situação) + histórico de campos + apoio
   const [ajustes, setAjustes] = useState<any[]>([])
+  const [historico, setHistorico] = useState<any[]>([])
   const [usersMap, setUsersMap] = useState<Record<string, string>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
@@ -237,6 +238,14 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
   const [salvandoAjuste, setSalvandoAjuste] = useState(false)
   const [ajusteErro, setAjusteErro] = useState('')
 
+  // Edição manual dos campos editáveis (persistidos) + rascunho durante a edição
+  const [vals, setVals] = useState<EditVals>(() => valsFromRow(row))
+  const [draft, setDraft] = useState<EditVals>(vals)
+  const [editando, setEditando] = useState(false)
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [edicaoErro, setEdicaoErro] = useState('')
+  const onField = (k: keyof EditVals, v: string) => setDraft(d => ({ ...d, [k]: v }))
+
   // Esc fecha
   const onKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => {
@@ -245,15 +254,22 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
     return () => document.removeEventListener('keydown', onKey)
   }, [onKey])
 
-  // Carrega ajustes manuais, nomes e usuário logado
+  // Carrega ajustes manuais, histórico de campos, nomes e usuário logado
   const carregarAjustes = useCallback(async () => {
     const { data } = await supabase.from('inadimplencia_ajustes').select('*')
       .eq('inadimplencia_id', row.id).order('ajustado_em', { ascending: false })
     setAjustes((data as any[]) ?? [])
   }, [row.id, supabase])
 
+  const carregarHistorico = useCallback(async () => {
+    const { data } = await supabase.from('inadimplencia_historico').select('*')
+      .eq('inadimplencia_id', row.id).order('alterado_em', { ascending: false })
+    setHistorico((data as any[]) ?? [])
+  }, [row.id, supabase])
+
   useEffect(() => {
     carregarAjustes()
+    carregarHistorico()
     supabase.from('users_profile').select('id, full_name').then(({ data }) => {
       setUsersMap(Object.fromEntries(((data as any[]) ?? []).map(u => [u.id, u.full_name])))
     })
@@ -330,6 +346,45 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
     onChanged?.()
   }
 
+  function iniciarEdicao() { setDraft(vals); setEditando(true); setEdicaoErro(''); setConfirmando(false) }
+  function cancelarEdicao() { setDraft(vals); setEditando(false); setEdicaoErro('') }
+
+  async function salvarEdicao() {
+    setSalvandoEdicao(true); setEdicaoErro('')
+    const agora = new Date().toISOString()
+    const update: Record<string, any> = {}
+    const histRows: any[] = []
+    for (const c of CAMPOS_EDIT) {
+      const antes = c.db(vals[c.key])
+      const depois = c.db(draft[c.key])
+      if (antes === depois) continue
+      update[c.key] = depois
+      histRows.push({
+        inadimplencia_id: row.id,
+        campo: c.label,
+        valor_anterior: c.readable(vals[c.key]),
+        valor_novo: c.readable(draft[c.key]),
+        alterado_por: currentUserId,
+        alterado_em: agora,
+      })
+    }
+    // Nada mudou: sai da edição sem gravar nada (nem update, nem histórico).
+    if (histRows.length === 0) { setEditando(false); setSalvandoEdicao(false); return }
+
+    update.atualizado_em = agora
+    const { error: upErr } = await supabase.from('inadimplencias').update(update).eq('id', row.id)
+    if (upErr) { setSalvandoEdicao(false); setEdicaoErro('Erro ao salvar: ' + upErr.message); return }
+
+    const { error: hErr } = await supabase.from('inadimplencia_historico').insert(histRows)
+    if (hErr) setEdicaoErro('Alterações salvas, mas houve erro ao gravar o histórico: ' + hErr.message)
+
+    setVals(draft)
+    setEditando(false)
+    setSalvandoEdicao(false)
+    carregarHistorico()
+    onChanged?.()
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Detalhe do título">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} aria-hidden="true" />
@@ -380,24 +435,41 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
             <Campo label="Situação">{sit.label}</Campo>
             <Campo label="Mês de referência">{fmtMes(row.mes_referencia)}</Campo>
             <Campo label="Situação do cadastro (ATIVO/INATIVO)">{disp(row.situacao_cadastro)}</Campo>
-            <Campo label="Status de bloqueio" full wrap>{disp(row.status_bloqueio)}</Campo>
+            <Campo label="Status de bloqueio" full wrap>
+              {editando
+                ? <input className="input" value={draft.status_bloqueio} onChange={e => onField('status_bloqueio', e.target.value)} placeholder="Ex.: Bloqueado, Liberado..." />
+                : disp(vals.status_bloqueio)}
+            </Campo>
           </Bloco>
 
           {/* Bloco 2 — Informações internas + histórico de ajustes manuais
               (oculto no futuro para parceiro externo) */}
           {MOSTRAR_INFO_INTERNA && (
             <>
-              <BlocoInformacoesInternas row={{ ...row, situacao, quitado_em: quitadoEm }} />
+              <BlocoInformacoesInternas row={{ ...row, situacao, quitado_em: quitadoEm }}
+                vals={vals} draft={draft} editando={editando} onField={onField} />
+              <BlocoHistorico historico={historico} usersMap={usersMap} />
               <BlocoAjustes ajustes={ajustes} usersMap={usersMap} />
             </>
           )}
         </div>
 
-        {/* Rodapé — reversão manual da situação (separado do conteúdo somente leitura) */}
+        {/* Rodapé — edição de campos e reversão manual da situação */}
         <div className="px-5 py-3 border-t border-gray-100">
-          {!confirmando ? (
+          {editando ? (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Editando os campos acima. A situação (em aberto/quitado) muda pelo ajuste manual, não aqui.</p>
+              {edicaoErro && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{edicaoErro}</p>}
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={salvarEdicao} disabled={salvandoEdicao} className="btn-primary disabled:opacity-50">
+                  {salvandoEdicao ? 'Salvando...' : <><Check size={14} /> Salvar</>}
+                </button>
+                <button type="button" onClick={cancelarEdicao} disabled={salvandoEdicao} className="btn">Cancelar</button>
+              </div>
+            </div>
+          ) : !confirmando ? (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-gray-400">Conteúdo acima é somente leitura.</span>
+              <button type="button" onClick={iniciarEdicao} className="btn btn-sm"><Pencil size={14} /> Editar</button>
               <button type="button" onClick={() => { setConfirmando(true); setAjusteErro('') }}
                 className="btn btn-sm whitespace-nowrap">
                 {situacao === 'quitado' ? <><RotateCcw size={14} /> Reabrir título</> : <><CheckCircle2 size={14} /> Marcar como quitado</>}
@@ -474,16 +546,72 @@ function BlocoAjustes({ ajustes, usersMap }: { ajustes: any[]; usersMap: Record<
  * única (MOSTRAR_INFO_INTERNA) para que, ao existir controle de acesso por
  * perfil, ocultar TODO o conteúdo interno do parceiro externo seja trivial.
  */
-function BlocoInformacoesInternas({ row }: { row: any }) {
+function BlocoInformacoesInternas({ row, vals, draft, editando, onField }: {
+  row: any; vals: EditVals; draft: EditVals; editando: boolean; onField: (k: keyof EditVals, v: string) => void
+}) {
   return (
     <Bloco titulo="Informações internas" icon={<Lock size={13} className="text-gray-400" />}>
-      <Campo label="Data de liquidação">{fmtDateBR(row.data_liquidacao)}</Campo>
-      <Campo label="Pagamento com juros">{row.pagamento_com_juros === true ? 'Sim' : row.pagamento_com_juros === false ? 'Não' : '—'}</Campo>
-      <Campo label="Status de cartório" full wrap>{disp(row.status_cartorio)}</Campo>
+      <Campo label="Data de liquidação">
+        {editando
+          ? <input type="date" className="input" value={draft.data_liquidacao} onChange={e => onField('data_liquidacao', e.target.value)} />
+          : fmtDateBR(vals.data_liquidacao || null)}
+      </Campo>
+      <Campo label="Pagamento com juros">
+        {editando ? (
+          <select className="select" value={draft.pagamento_com_juros} onChange={e => onField('pagamento_com_juros', e.target.value)}>
+            <option value="">—</option>
+            <option value="sim">Sim</option>
+            <option value="nao">Não</option>
+          </select>
+        ) : jurosLabel(vals.pagamento_com_juros)}
+      </Campo>
+      <Campo label="Status de cartório" full wrap>
+        {editando
+          ? <input className="input" value={draft.status_cartorio} onChange={e => onField('status_cartorio', e.target.value)} placeholder="Ex.: Protestado, Sem protesto..." />
+          : disp(vals.status_cartorio)}
+      </Campo>
+      <Campo label="Anotação interna" full wrap>
+        {editando
+          ? <textarea className="input" rows={3} value={draft.anotacao} onChange={e => onField('anotacao', e.target.value)} placeholder="Observações internas sobre este título (não vão para o parceiro)." />
+          : disp(vals.anotacao)}
+      </Campo>
       <Campo label="Quitado em">{fmtDateBR(row.quitado_em)}</Campo>
       <Campo label="Primeira detecção">{fmtDateBR(row.primeira_deteccao)}</Campo>
       <Campo label="Última detecção">{fmtDateBR(row.ultima_deteccao)}</Campo>
     </Bloco>
+  )
+}
+
+/*
+ * Histórico de ALTERAÇÕES de campos (edição manual). Interno — renderizado sob
+ * MOSTRAR_INFO_INTERNA, junto dos ajustes de situação. Ordem cronológica
+ * decrescente (a query já ordena por alterado_em desc).
+ */
+function BlocoHistorico({ historico, usersMap }: { historico: any[]; usersMap: Record<string, string> }) {
+  return (
+    <section>
+      <div className="flex items-center gap-1.5 mb-2">
+        <History size={13} className="text-gray-400" />
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Histórico de alterações</h3>
+      </div>
+      {historico.length === 0 ? (
+        <p className="text-xs text-gray-400">Nenhuma alteração de campo neste título.</p>
+      ) : (
+        <ol className="space-y-2">
+          {historico.map(h => (
+            <li key={h.id} className="text-sm text-gray-700 border-l-2 border-gray-200 pl-3">
+              <div className="font-medium text-gray-900">{h.campo}</div>
+              <div className="text-xs">
+                <span className="text-gray-500 break-words">{disp(h.valor_anterior)}</span>
+                <span className="text-gray-400"> → </span>
+                <span className="text-gray-800 break-words">{disp(h.valor_novo)}</span>
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">{usersMap[h.alterado_por] ?? '—'} · {formatDate(h.alterado_em)}</div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   )
 }
 
@@ -509,6 +637,45 @@ function Campo({ label, children, full, wrap }: { label: string; children: React
 }
 
 const disp = (s: unknown) => (s !== null && s !== undefined && String(s).trim() !== '' ? String(s) : '—')
+
+// ————————————————————————————————————————————————————————————————
+// Edição manual de campos do título. A situação (em aberto/quitado) NÃO entra
+// aqui — muda pelo botão de ajuste manual, com motivo obrigatório.
+// ————————————————————————————————————————————————————————————————
+interface EditVals {
+  status_bloqueio: string
+  status_cartorio: string
+  data_liquidacao: string     // 'AAAA-MM-DD' | ''
+  pagamento_com_juros: string // 'sim' | 'nao' | ''
+  anotacao: string
+}
+
+function valsFromRow(row: any): EditVals {
+  return {
+    status_bloqueio: row.status_bloqueio ?? '',
+    status_cartorio: row.status_cartorio ?? '',
+    data_liquidacao: row.data_liquidacao ? String(row.data_liquidacao).slice(0, 10) : '',
+    pagamento_com_juros: row.pagamento_com_juros === true ? 'sim' : row.pagamento_com_juros === false ? 'nao' : '',
+    anotacao: row.anotacao ?? '',
+  }
+}
+
+const jurosLabel = (v: string) => (v === 'sim' ? 'Sim' : v === 'nao' ? 'Não' : '—')
+
+// Descritores dos campos editáveis: valor para o banco (db) e valor legível
+// para o histórico (readable). Usados no diff do salvamento.
+const CAMPOS_EDIT: {
+  key: keyof EditVals
+  label: string
+  db: (v: string) => string | boolean | null
+  readable: (v: string) => string
+}[] = [
+  { key: 'status_bloqueio', label: 'Status de bloqueio', db: v => v.trim() || null, readable: v => v.trim() || '—' },
+  { key: 'status_cartorio', label: 'Status de cartório', db: v => v.trim() || null, readable: v => v.trim() || '—' },
+  { key: 'data_liquidacao', label: 'Data de liquidação', db: v => v || null, readable: v => fmtDateBR(v || null) },
+  { key: 'pagamento_com_juros', label: 'Pagamento com juros', db: v => (v === 'sim' ? true : v === 'nao' ? false : null), readable: v => jurosLabel(v) },
+  { key: 'anotacao', label: 'Anotação interna', db: v => v.trim() || null, readable: v => v.trim() || '—' },
+]
 
 // ————————————————————————————————————————————————————————————————
 // Geração de e-mail de cobrança (nada é enviado — apenas copiado).
