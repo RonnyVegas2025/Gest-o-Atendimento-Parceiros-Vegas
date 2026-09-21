@@ -149,41 +149,99 @@ export function diasEmAberto(vencimento: string | null, ref: Date = new Date()):
 // ————————————————————————————————————————————————————————————————
 // Mapeamento de colunas da planilha
 // ————————————————————————————————————————————————————————————————
-/** Nome canônico de cada coluna usada (chave) → possíveis rótulos no arquivo. */
-export const COLUNAS = {
-  mes:            ['mes'],
-  razao_social:   ['razao social'],
-  cod_boleto:     ['cod boleto', 'codigo boleto'],
-  id:             ['id'],
-  tipo:           ['tipo'],
-  banco:          ['banco'],
-  valor:          ['valor'],
-  vencimento:     ['venc', 'venc.', 'vencimento'],
-  ativo_inativo:  ['ativo/inativo', 'ativo inativo'],
-  status_bloqueio:['status - bloqueio', 'status bloqueio'],
-  status_cartorio:['status - cartorio', 'status cartorio'],
-  data_liquidacao:['data de liquidacao', 'data liquidacao'],
-  pagamento_juros:['pagamento realizado com juros'],
-  parceiro:       ['parceiro'],
-} as const
+/**
+ * Aliases de cabeçalho por campo. O financeiro muda o layout da planilha com
+ * frequência, então cada campo aceita VÁRIOS nomes. A comparação é por nome
+ * NORMALIZADO (sem acento, sem  , sem espaços extras, case-insensitive) —
+ * os aliases podem ser escritos aqui na forma humana.
+ */
+export const COLUNAS: Record<string, string[]> = {
+  mes:            ['Mês', 'Mes'],
+  razao_social:   ['Razão Social'],
+  cod_boleto:     ['CÓD BOLETO', 'Código Boleto', 'NOSSO N°', 'NOSSO Nº', 'NOSSO NUMERO', 'Nosso Número'],
+  id:             ['ID'],
+  tipo:           ['Tipo'],
+  banco:          ['Banco'],
+  valor:          ['Valor'],
+  vencimento:     ['Venc.', 'Venc', 'Vencimento'],
+  ativo_inativo:  ['Ativo/Inativo', 'Ativo Inativo'],
+  status_bloqueio:['STATUS - BLOQUEIO', 'Status Bloqueio', 'STATUS'],
+  status_cartorio:['STATUS - CARTÓRIO', 'Status Cartório'],
+  data_liquidacao:['Data de Liquidação', 'Data Liquidação', 'PAGO EM'],
+  pagamento_juros:['Pagamento realizado com Juros'],
+  parceiro:       ['Parceiro'],
+}
 
 export type ColunaKey = keyof typeof COLUNAS
 
+/** Rótulo amigável de cada campo, para a prévia da importação. */
+export const CAMPO_LABEL: Record<ColunaKey, string> = {
+  mes: 'Mês de referência',
+  razao_social: 'Razão social',
+  cod_boleto: 'Cód. boleto',
+  id: 'ID',
+  tipo: 'Tipo',
+  banco: 'Banco',
+  valor: 'Valor',
+  vencimento: 'Vencimento',
+  ativo_inativo: 'Situação do cadastro',
+  status_bloqueio: 'Status de bloqueio',
+  status_cartorio: 'Status de cartório',
+  data_liquidacao: 'Data de liquidação',
+  pagamento_juros: 'Pagamento com juros',
+  parceiro: 'Parceiro',
+}
+
+// Normaliza um rótulo para comparação (sem acento/nbsp/espaços extras, minúsculo
+// e sem ponto final — "Venc." e "VENC" batem).
+function normHeader(v: unknown): string { return normKey(v).replace(/\.$/, '') }
+
+export interface HeaderMap {
+  index: Partial<Record<ColunaKey, number>>
+  faltando: ColunaKey[]
+  /** Colunas do arquivo reconhecidas → campo do sistema. */
+  reconhecidas: { campo: ColunaKey; header: string }[]
+  /** Colunas do arquivo que não correspondem a nenhum campo (ignoradas). */
+  ignoradas: string[]
+}
+
 /**
  * Constrói o índice coluna→posição a partir da linha de cabeçalho (array de
- * células). Retorna o mapa e a lista de colunas obrigatórias ausentes.
+ * células), comparando nomes normalizados contra os aliases de cada campo.
+ * Obrigatórias: Razão Social, ID, Valor, Venc. — as demais, se ausentes,
+ * viram null (nunca rejeitam o arquivo).
  */
-export function mapHeader(headerRow: unknown[]): { index: Partial<Record<ColunaKey, number>>; faltando: ColunaKey[] } {
-  const normalized = headerRow.map(c => normKey(c).replace(/\.$/, ''))
+export function mapHeader(headerRow: unknown[]): HeaderMap {
+  const normalized = headerRow.map(normHeader)
   const index: Partial<Record<ColunaKey, number>> = {}
+  const usados = new Set<number>()
   for (const key of Object.keys(COLUNAS) as ColunaKey[]) {
-    const alt = COLUNAS[key].map(a => a.replace(/\.$/, ''))
-    const pos = normalized.findIndex(h => alt.includes(h))
-    if (pos >= 0) index[key] = pos
+    const alt = COLUNAS[key].map(normHeader)
+    const pos = normalized.findIndex((h, i) => h !== '' && !usados.has(i) && alt.includes(h))
+    if (pos >= 0) { index[key] = pos; usados.add(pos) }
   }
-  const OBRIGATORIAS: ColunaKey[] = ['id', 'valor', 'vencimento', 'parceiro']
+  const OBRIGATORIAS: ColunaKey[] = ['razao_social', 'id', 'valor', 'vencimento']
   const faltando = OBRIGATORIAS.filter(k => index[k] === undefined)
-  return { index, faltando }
+
+  const reconhecidas = (Object.keys(index) as ColunaKey[])
+    .map(campo => ({ campo, header: cleanText(headerRow[index[campo] as number]) }))
+  const ignoradas = headerRow
+    .map((c, i) => ({ label: cleanText(c), i }))
+    .filter(x => x.label !== '' && !usados.has(x.i))
+    .map(x => x.label)
+
+  return { index, faltando, reconhecidas, ignoradas }
+}
+
+/**
+ * Normaliza o nome do parceiro para gravação: trim (inclui  ), MAIÚSCULAS
+ * e sem acento — assim "Nex7" e "NEX7" viram o mesmo parceiro e a quitação
+ * automática não trata como parceiros diferentes.
+ */
+export function normalizeParceiro(v: unknown): string | null {
+  const s = cleanText(v)
+  if (!s) return null
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
 }
 
 export interface LinhaNormalizada {
@@ -225,7 +283,7 @@ export function normalizeLinha(row: unknown[], idx: Partial<Record<ColunaKey, nu
     status_cartorio: cleanText(get('status_cartorio')) || null,
     data_liquidacao: parseDateISO(get('data_liquidacao')),
     pagamento_com_juros: parseBoolJuros(get('pagamento_juros')),
-    parceiro_planilha: cleanText(get('parceiro')) || null,
+    parceiro_planilha: normalizeParceiro(get('parceiro')),
   }
 }
 

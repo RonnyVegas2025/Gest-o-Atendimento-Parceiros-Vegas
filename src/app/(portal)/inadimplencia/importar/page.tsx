@@ -3,10 +3,10 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, X } from 'lucide-react'
+import { ArrowLeft, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, X, Columns3 } from 'lucide-react'
 import {
   mapHeader, normalizeLinha, chaveUnica, fmtBRL, fmtMes, fmtDateBR,
-  MOTIVO_PENDENCIA, type LinhaNormalizada, type ColunaKey,
+  MOTIVO_PENDENCIA, CAMPO_LABEL, type LinhaNormalizada, type ColunaKey, type HeaderMap,
 } from '@/lib/inadimplencia'
 
 /*
@@ -44,6 +44,8 @@ interface Preview {
   totalPendentes: number
   totalNovas: number
   quitadosIds: string[]   // registros que serão marcados como quitados
+  reconhecidas: { campo: ColunaKey; header: string }[]
+  ignoradas: string[]
 }
 
 export default function ImportarInadimplenciaPage() {
@@ -86,14 +88,15 @@ export default function ImportarInadimplenciaPage() {
 
     // Encontra a linha de cabeçalho (primeira que mapeia as colunas obrigatórias)
     let headerPos = -1
-    let idx: Partial<Record<ColunaKey, number>> = {}
+    let hmap: HeaderMap | null = null
     for (let i = 0; i < Math.min(matrix.length, 15); i++) {
       const m = mapHeader(matrix[i])
-      if (m.faltando.length === 0) { headerPos = i; idx = m.index; break }
+      if (m.faltando.length === 0) { headerPos = i; hmap = m; break }
     }
-    if (headerPos < 0) {
-      throw new Error('Cabeçalho não reconhecido. Confira se o arquivo tem as colunas ID, VALOR, VENC. e Parceiro.')
+    if (headerPos < 0 || !hmap) {
+      throw new Error('Cabeçalho não reconhecido. Confira se o arquivo tem as colunas obrigatórias: RAZÃO SOCIAL, ID, VALOR e VENC.')
     }
+    const idx = hmap.index
 
     // Normaliza as linhas de dados (ignora linhas totalmente vazias)
     const dataRows = matrix.slice(headerPos + 1)
@@ -164,6 +167,8 @@ export default function ImportarInadimplenciaPage() {
       totalPendentes: rows.filter(r => r.motivo).length,
       totalNovas: rows.filter(r => r.nova).length,
       quitadosIds,
+      reconhecidas: hmap.reconhecidas,
+      ignoradas: hmap.ignoradas,
     })
   }
 
@@ -343,6 +348,29 @@ export default function ImportarInadimplenciaPage() {
                   {preview.totalPendentes} linha(s) sem vínculo automático entrarão na base assim mesmo (empresa em branco) e ficarão registradas como pendência para resolução manual.
                 </p>
               )}
+
+              {/* Colunas reconhecidas / ignoradas — para perceber mudança de layout */}
+              <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Columns3 size={14} className="text-gray-400" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Colunas reconhecidas</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {preview.reconhecidas.map(rec => (
+                    <span key={rec.campo} className="inline-flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1">
+                      <span className="font-medium text-gray-700">{rec.header}</span>
+                      <span className="text-gray-400">→ {CAMPO_LABEL[rec.campo]}</span>
+                    </span>
+                  ))}
+                </div>
+                {preview.ignoradas.length > 0 && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    <span className="font-medium text-gray-600">Ignoradas ({preview.ignoradas.length}):</span>{' '}
+                    {preview.ignoradas.join(', ')}
+                    <div className="text-gray-400 mt-0.5">Colunas do arquivo sem campo correspondente. Se algo importante ficou de fora, o layout da planilha pode ter mudado — confira antes de gravar.</div>
+                  </div>
+                )}
+              </div>
 
               <div className="mt-4 border border-gray-100 rounded-xl overflow-hidden">
                 <div className="table-header grid text-xs" style={{ gridTemplateColumns: '90px 1fr 130px 90px 110px 120px' }}>
