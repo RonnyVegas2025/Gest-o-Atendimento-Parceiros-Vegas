@@ -12,15 +12,17 @@ import {
 /*
  * IMPORTAÇÃO DE INADIMPLÊNCIA (uso interno — time Vegas).
  *
- * Lê um .xlsx, normaliza cada linha, resolve o vínculo com a empresa via
- * empresas_produtos (produto_id + ativo=true) e mostra uma PRÉVIA. Só grava
- * após confirmação. Ao gravar:
- *  - upsert pela chave única (id_produto_raw, vencimento, valor): novas entram
- *    como em_aberto; existentes têm campos mutáveis + ultima_deteccao atualizados;
+ * Lê TODAS as abas do .xlsx (o arquivo do financeiro tem "pagos" e "em aberto"),
+ * normaliza cada linha, resolve o vínculo com a empresa via empresas_produtos
+ * (produto_id + ativo=true) e mostra uma PRÉVIA. Só grava após confirmação:
+ *  - upsert pela chave única (id_produto_raw, vencimento, valor): novas entram;
+ *    existentes têm os campos mutáveis + ultima_deteccao atualizados;
+ *  - a situação vem da coluna PAGO EM: com data → quitado (quitado_em = a data
+ *    da coluna); vazio/"-" → em_aberto;
  *  - linhas sem vínculo (ou ambíguas) entram mesmo assim (empresa_id null) e
  *    geram uma pendência;
- *  - registros em_aberto dos parceiros deste arquivo que NÃO vieram nesta
- *    importação passam a quitado. Nenhum registro é apagado.
+ *  - NÃO há quitação por ausência: títulos que não vêm no arquivo não mudam de
+ *    situação — apenas são listados na prévia como "ausentes". Nada é apagado.
  */
 
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -32,8 +34,11 @@ function chunk<T>(arr: T[], n: number): T[][] {
 interface RowPrep {
   linha: LinhaNormalizada
   empresa_id: string | null
-  motivo: string | null   // chave em MOTIVO_PENDENCIA quando pendente
+  motivo: string | null       // chave em MOTIVO_PENDENCIA quando pendente
   nova: boolean
+  situacaoNova: 'quitado' | 'em_aberto'
+  quitadoEm: string | null    // data da coluna PAGO EM (nunca a data da importação)
+  reaberta: boolean           // estava quitado e voltou sem PAGO EM
 }
 
 interface Preview {
@@ -43,7 +48,10 @@ interface Preview {
   totalVinculadas: number
   totalPendentes: number
   totalNovas: number
-  quitadosIds: string[]   // registros que serão marcados como quitados
+  totalQuitadas: number       // linhas com PAGO EM preenchido neste arquivo
+  totalReabertas: number      // estavam quitadas e voltaram sem PAGO EM
+  ausentesQtd: number         // em_aberto na base, dos parceiros do arquivo, que não vieram
+  ausentesValor: number
   reconhecidas: { campo: ColunaKey; header: string }[]
   ignoradas: string[]
 }
@@ -82,27 +90,32 @@ export default function ImportarInadimplenciaPage() {
   async function analisar(file: File) {
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { cellDates: true })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    if (!ws) throw new Error('A planilha não tem nenhuma aba legível.')
-    const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false, defval: '' })
-
-    // Encontra a linha de cabeçalho (primeira que mapeia as colunas obrigatórias)
-    let headerPos = -1
+    // Lê TODAS as abas (o arquivo do financeiro tem "pagos" e "em aberto" com as
+    // mesmas colunas). Cada aba tem seu próprio cabeçalho; tudo vira um conjunto único.
     let hmap: HeaderMap | null = null
-    for (let i = 0; i < Math.min(matrix.length, 15); i++) {
-      const m = mapHeader(matrix[i])
-      if (m.faltando.length === 0) { headerPos = i; hmap = m; break }
+    const dataRows: LinhaNormalizada[] = []
+    for (const nome of wb.SheetNames) {
+      const ws = wb.Sheets[nome]
+      if (!ws) continue
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false, defval: '' })
+      let headerPos = -1
+      let m: HeaderMap | null = null
+      for (let i = 0; i < Math.min(matrix.length, 15); i++) {
+        const cand = mapHeader(matrix[i])
+        if (cand.faltando.length === 0) { headerPos = i; m = cand; break }
+      }
+      if (headerPos < 0 || !m) continue // aba sem cabeçalho reconhecível — ignora
+      if (!hmap) hmap = m // layout da primeira aba válida serve para a prévia
+      const linhas = matrix.slice(headerPos + 1)
+        .filter(r => Array.isArray(r) && r.some(c => String(c ?? '').replace(/ /g, ' ').trim() !== ''))
+        .map(r => normalizeLinha(r, m!.index))
+        .filter(l => l.id_produto_raw || l.razao_social_planilha)
+      dataRows.push(...linhas)
     }
-    if (headerPos < 0 || !hmap) {
-      throw new Error('Cabeçalho não reconhecido. Confira se o arquivo tem as colunas obrigatórias: RAZÃO SOCIAL, ID, VALOR e VENC.')
-    }
-    const idx = hmap.index
 
-    // Normaliza as linhas de dados (ignora linhas totalmente vazias)
-    const dataRows = matrix.slice(headerPos + 1)
-      .filter(r => Array.isArray(r) && r.some(c => String(c ?? '').replace(/ /g, ' ').trim() !== ''))
-      .map(r => normalizeLinha(r, idx))
-      .filter(l => l.id_produto_raw || l.razao_social_planilha)
+    if (!hmap) {
+      throw new Error('Cabeçalho não reconhecido em nenhuma aba. Confira as colunas obrigatórias: RAZÃO SOCIAL, ID, VALOR e VENC.')
+    }
 
     if (dataRows.length === 0) throw new Error('Nenhuma linha de dados encontrada na planilha.')
 
@@ -119,22 +132,23 @@ export default function ImportarInadimplenciaPage() {
       }
     }
 
-    // Existentes dos parceiros presentes no arquivo (para "novas" e "quitados")
+    // Existentes dos parceiros presentes no arquivo (para "novas", "reabertas" e "ausentes")
     const parceiros = Array.from(new Set(dataRows.map(l => l.parceiro_planilha).filter((v): v is string => !!v)))
-    const existentes: { id: string; key: string; situacao: string }[] = []
+    const existentes: { id: string; key: string; situacao: string; valor: number | null }[] = []
     for (const part of chunk(parceiros, 100)) {
       const { data, error } = await supabase.from('inadimplencias')
         .select('id, id_produto_raw, vencimento, valor, situacao, parceiro_planilha')
         .in('parceiro_planilha', part).limit(20000)
       if (error) throw new Error('Erro ao consultar inadimplências existentes: ' + error.message)
       for (const r of (data as any[]) ?? []) {
-        existentes.push({ id: r.id, situacao: r.situacao, key: chaveUnica(r) })
+        existentes.push({ id: r.id, situacao: r.situacao, valor: r.valor, key: chaveUnica(r) })
       }
     }
     const existentesByKey = new Map(existentes.map(e => [e.key, e]))
     const fileKeys = new Set(dataRows.map(chaveUnica))
 
-    // Monta a prévia por linha
+    // Monta a prévia por linha. A situação vem da coluna PAGO EM (data_liquidacao):
+    // preenchida → quitado (quitado_em = a data da coluna); vazia → em_aberto.
     const rows: RowPrep[] = dataRows.map(linha => {
       let empresa_id: string | null = null
       let motivo: string | null = null
@@ -145,14 +159,24 @@ export default function ImportarInadimplenciaPage() {
         else if (set.size > 1) motivo = 'ambiguo'
         else empresa_id = Array.from(set)[0]
       }
-      return { linha, empresa_id, motivo, nova: !existentesByKey.has(chaveUnica(linha)) }
+      const pago = linha.data_liquidacao // PAGO EM (data) ou null
+      const situacaoNova: 'quitado' | 'em_aberto' = pago ? 'quitado' : 'em_aberto'
+      const key = chaveUnica(linha)
+      const existente = existentesByKey.get(key)
+      const reaberta = situacaoNova === 'em_aberto' && existente?.situacao === 'quitado'
+      return {
+        linha, empresa_id, motivo,
+        nova: !existente,
+        situacaoNova,
+        quitadoEm: pago,
+        reaberta,
+      }
     })
 
-    // Quitados: em_aberto existentes cujos parceiros estão no arquivo e a chave
-    // não veio nesta importação.
-    const quitadosIds = existentes
-      .filter(e => e.situacao === 'em_aberto' && !fileKeys.has(e.key))
-      .map(e => e.id)
+    // Ausentes: em_aberto na base (dos parceiros do arquivo) que NÃO vieram neste
+    // arquivo. Não mudam de situação — só são listados para conferência manual.
+    const ausentes = existentes.filter(e => e.situacao === 'em_aberto' && !fileKeys.has(e.key))
+    const ausentesValor = ausentes.reduce((s, e) => s + (Number(e.valor) || 0), 0)
 
     // Mês de referência predominante
     const contagem = new Map<string, number>()
@@ -166,7 +190,10 @@ export default function ImportarInadimplenciaPage() {
       totalVinculadas: rows.filter(r => r.empresa_id).length,
       totalPendentes: rows.filter(r => r.motivo).length,
       totalNovas: rows.filter(r => r.nova).length,
-      quitadosIds,
+      totalQuitadas: rows.filter(r => r.situacaoNova === 'quitado').length,
+      totalReabertas: rows.filter(r => r.reaberta).length,
+      ausentesQtd: ausentes.length,
+      ausentesValor,
       reconhecidas: hmap.reconhecidas,
       ignoradas: hmap.ignoradas,
     })
@@ -241,8 +268,10 @@ export default function ImportarInadimplenciaPage() {
           data_liquidacao: l.data_liquidacao ?? prev?.data_liquidacao ?? null,
           pagamento_com_juros: l.pagamento_com_juros ?? prev?.pagamento_com_juros ?? null,
           empresa_id: r.empresa_id,
-          situacao: 'em_aberto',
-          quitado_em: null,
+          // Situação pela coluna PAGO EM: quitado usa a DATA da coluna (nunca a
+          // data da importação); em aberto zera o quitado_em.
+          situacao: r.situacaoNova,
+          quitado_em: r.quitadoEm,
           primeira_deteccao: primeiraByKey.get(key) ?? agora,
           ultima_deteccao: agora,
           atualizado_em: agora,
@@ -275,18 +304,14 @@ export default function ImportarInadimplenciaPage() {
         if (error) throw new Error('Erro ao gravar pendências: ' + error.message)
       }
 
-      // Quitação dos que não vieram nesta importação
-      for (const part of chunk(preview.quitadosIds, 300)) {
-        const { error } = await supabase.from('inadimplencias')
-          .update({ situacao: 'quitado', quitado_em: agora, atualizado_em: agora }).in('id', part)
-        if (error) throw new Error('Erro ao marcar quitados: ' + error.message)
-      }
+      // Sem quitação automática por ausência: títulos que não vieram no arquivo
+      // permanecem como estão (ficam apenas listados na prévia como "ausentes").
 
       setResultado({
         novas: preview.totalNovas,
         atualizadas: preview.totalLinhas - preview.totalNovas,
         pendentes: preview.totalPendentes,
-        quitadas: preview.quitadosIds.length,
+        quitadas: preview.totalQuitadas,
       })
       setPreview(null)
     } catch (err: any) {
@@ -345,18 +370,31 @@ export default function ImportarInadimplenciaPage() {
               <span className="text-xs text-gray-400">Mês de referência: {fmtMes(preview.mesRef)}</span>
             </div>
             <div className="card-body">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Stat label="Linhas" value={preview.totalLinhas} />
                 <Stat label="Vinculadas" value={preview.totalVinculadas} tone="ok" />
                 <Stat label="Pendentes" value={preview.totalPendentes} tone={preview.totalPendentes ? 'warn' : undefined} />
                 <Stat label="Novas" value={preview.totalNovas} />
-                <Stat label="Serão quitadas" value={preview.quitadosIds.length} tone="ok" />
+                <Stat label="Quitadas neste arquivo" value={preview.totalQuitadas} tone="ok" />
+                <Stat label="Reabertas" value={preview.totalReabertas} tone={preview.totalReabertas ? 'warn' : undefined} />
+                <Stat label="Ausentes do arquivo" value={preview.ausentesQtd} tone={preview.ausentesQtd ? 'warn' : undefined} />
               </div>
 
               {preview.totalPendentes > 0 && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
                   {preview.totalPendentes} linha(s) sem vínculo automático entrarão na base assim mesmo (empresa em branco) e ficarão registradas como pendência para resolução manual.
                 </p>
+              )}
+
+              {/* Ausentes do arquivo — não serão alterados (substitui a quitação por ausência) */}
+              {preview.ausentesQtd > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                  <div className="text-xs font-medium text-amber-800">Ausentes do arquivo (não serão alterados)</div>
+                  <div className="text-xs text-amber-700 mt-0.5">
+                    {preview.ausentesQtd} título(s) em aberto na base, dos parceiros deste arquivo, não vieram nesta planilha — {fmtBRL(preview.ausentesValor)}.
+                    A situação deles não muda; confira manualmente se algum foi pago.
+                  </div>
+                </div>
               )}
 
               {/* Colunas reconhecidas / ignoradas — para perceber mudança de layout */}

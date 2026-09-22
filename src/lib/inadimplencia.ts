@@ -267,6 +267,19 @@ export interface LinhaNormalizada {
 export function normalizeLinha(row: unknown[], idx: Partial<Record<ColunaKey, number>>): LinhaNormalizada {
   const get = (k: ColunaKey) => (idx[k] === undefined ? undefined : row[idx[k] as number])
   const prod = extractProduto(get('id'))
+  const statusBloqueio = cleanText(get('status_bloqueio')) || null
+  const dataLiquidacao = parseDateISO(get('data_liquidacao'))
+
+  // Pagamento com juros: usa a coluna própria; mas quando há PAGO EM (data de
+  // liquidação) preenchido, deriva também do texto da coluna STATUS
+  // ("COM JUROS" → true, "SEM JUROS" → false; qualquer outro mantém o valor).
+  let pagamentoComJuros = parseBoolJuros(get('pagamento_juros'))
+  if (dataLiquidacao && statusBloqueio) {
+    const s = normKey(statusBloqueio)
+    if (s.includes('com juros')) pagamentoComJuros = true
+    else if (s.includes('sem juros')) pagamentoComJuros = false
+  }
+
   return {
     mes_referencia: parseMonthISO(get('mes')),
     razao_social_planilha: cleanText(get('razao_social')) || null,
@@ -279,10 +292,10 @@ export function normalizeLinha(row: unknown[], idx: Partial<Record<ColunaKey, nu
     valor: parseNum(get('valor')),
     vencimento: parseDateISO(get('vencimento')),
     situacao_cadastro: cleanText(get('ativo_inativo')) || null,
-    status_bloqueio: cleanText(get('status_bloqueio')) || null,
+    status_bloqueio: statusBloqueio,
     status_cartorio: cleanText(get('status_cartorio')) || null,
-    data_liquidacao: parseDateISO(get('data_liquidacao')),
-    pagamento_com_juros: parseBoolJuros(get('pagamento_juros')),
+    data_liquidacao: dataLiquidacao,
+    pagamento_com_juros: pagamentoComJuros,
     parceiro_planilha: normalizeParceiro(get('parceiro')),
   }
 }

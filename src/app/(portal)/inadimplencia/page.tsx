@@ -686,9 +686,12 @@ const CAMPOS_EDIT: {
 // bloco "Informações internas" (data de liquidação, pagamento com juros,
 // status de cartório, quitado em, primeira/última detecção) nunca entram.
 // ————————————————————————————————————————————————————————————————
-interface EmailRow { empresa: string; id: string; venc: string; valor: number | null; status: string }
+// Linhas para as tabelas do e-mail. Só campos PERMITIDOS (externos). O valor já
+// vem numérico; as demais colunas já vêm formatadas em texto.
+interface EmailCell { empresa: string; id: string; venc: string; valor: number | null; extra: string }
 
-function linhasPermitidas(rows: any[]): EmailRow[] {
+/** Títulos em aberto (segunda tabela) — coluna extra = Status de bloqueio. */
+function linhasAberto(rows: any[]): EmailCell[] {
   return [...rows]
     .sort((a, b) => String(a.vencimento ?? '').localeCompare(String(b.vencimento ?? '')))
     .map(r => ({
@@ -696,7 +699,20 @@ function linhasPermitidas(rows: any[]): EmailRow[] {
       id: (r.id_produto_raw ?? '').toString().trim() || '—',
       venc: fmtDateBR(r.vencimento),
       valor: typeof r.valor === 'number' ? r.valor : (r.valor != null ? Number(r.valor) : null),
-      status: (r.status_bloqueio ?? '').toString().trim() || '—',
+      extra: (r.status_bloqueio ?? '').toString().trim() || '—',
+    }))
+}
+
+/** Pagamentos confirmados (primeira tabela) — coluna extra = Pago em (data). */
+function linhasPagos(rows: any[]): EmailCell[] {
+  return [...rows]
+    .sort((a, b) => String(a.vencimento ?? '').localeCompare(String(b.vencimento ?? '')))
+    .map(r => ({
+      empresa: (r.razao_social_planilha ?? '').toString().trim() || '—',
+      id: (r.id_produto_raw ?? '').toString().trim() || '—',
+      venc: fmtDateBR(r.vencimento),
+      valor: typeof r.valor === 'number' ? r.valor : (r.valor != null ? Number(r.valor) : null),
+      extra: fmtDateBR(r.quitado_em ? String(r.quitado_em).slice(0, 10) : null),
     }))
 }
 
@@ -709,65 +725,76 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// HTML autocontido com estilos inline — CSS vars não sobrevivem ao colar no
-// Outlook, então as cores da tabela (cinzas neutros, sem marca) ficam inline.
-function corpoEmailHtml(linhas: EmailRow[], parceiro: string): string {
-  const alvo = parceiro || 'Vegas Card'
+// Tabela HTML autocontida (estilos inline — CSS vars não sobrevivem ao Outlook).
+// Colunas: Empresa | ID | Vencimento | Valor | <extraHeader>. Valor no índice 3.
+function tabelaHtml(extraHeader: string, linhas: EmailCell[]): string {
   const qtd = linhas.length
   const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
   const th = 'style="text-align:left;border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;"'
   const td = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;"'
   const tdR = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;text-align:right;white-space:nowrap;"'
-  const linhasHtml = linhas.map(l => (
+  const corpo = linhas.map(l => (
     `<tr><td ${td}>${esc(l.empresa)}</td><td ${td}>${esc(l.id)}</td>` +
-    `<td ${tdR}>${esc(l.venc)}</td><td ${tdR}>${esc(fmtBRL(l.valor))}</td><td ${td}>${esc(l.status)}</td></tr>`
+    `<td ${tdR}>${esc(l.venc)}</td><td ${tdR}>${esc(fmtBRL(l.valor))}</td><td ${td}>${esc(l.extra)}</td></tr>`
   )).join('')
   return (
-    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222222;line-height:1.5;">` +
-    `<p>Prezados,</p>` +
-    `<p>Segue a relação de títulos em aberto${parceiro ? ` referente a ${esc(alvo)}` : ''}. ` +
-    `Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.</p>` +
-    `<table style="border-collapse:collapse;font-size:13px;">` +
-    `<thead><tr><th ${th}>Empresa</th><th ${th}>ID</th><th ${th}>Vencimento</th><th ${th}>Valor</th><th ${th}>Status de bloqueio</th></tr></thead>` +
-    `<tbody>${linhasHtml}</tbody>` +
+    `<table style="border-collapse:collapse;font-size:13px;margin:6px 0 14px;">` +
+    `<thead><tr><th ${th}>Empresa</th><th ${th}>ID</th><th ${th}>Vencimento</th><th ${th}>Valor</th><th ${th}>${esc(extraHeader)}</th></tr></thead>` +
+    `<tbody>${corpo}</tbody>` +
     `<tfoot><tr>` +
     `<td colspan="3" style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;">Total — ${qtd} título${qtd === 1 ? '' : 's'}</td>` +
     `<td style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;white-space:nowrap;">${esc(fmtBRL(soma))}</td>` +
     `<td style="border:1px solid #cccccc;background:#f2f2f7;"></td>` +
-    `</tr></tfoot></table>` +
-    `<p>Permanecemos à disposição para quaisquer esclarecimentos.</p>` +
-    `<p>Atenciosamente,<br/>Vegas Card</p>` +
-    `</div>`
+    `</tr></tfoot></table>`
   )
 }
 
-// Fallback text/plain — tabela alinhada por espaçamento.
-function corpoEmailTexto(linhas: EmailRow[], parceiro: string): string {
-  const alvo = parceiro || 'Vegas Card'
-  const header = ['Empresa', 'ID', 'Vencimento', 'Valor', 'Status de bloqueio']
-  const data = linhas.map(l => [l.empresa, l.id, l.venc, fmtBRL(l.valor), l.status])
+function tabelaTexto(extraHeader: string, linhas: EmailCell[]): string {
+  const header = ['Empresa', 'ID', 'Vencimento', 'Valor', extraHeader]
+  const data = linhas.map(l => [l.empresa, l.id, l.venc, fmtBRL(l.valor), l.extra])
   const widths = header.map((h, i) => Math.max(h.length, ...data.map(r => r[i].length)))
   const pad = (s: string, w: number, right = false) => (right ? s.padStart(w) : s.padEnd(w))
   const linha = (cells: string[]) => cells.map((c, i) => pad(c, widths[i], i === 3)).join('  ').trimEnd()
   const regua = widths.map(w => '-'.repeat(w)).join('  ')
   const qtd = linhas.length
   const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
-  return [
-    'Prezados,',
-    '',
-    `Segue a relação de títulos em aberto${parceiro ? ` referente a ${alvo}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.`,
-    '',
-    linha(header),
-    regua,
-    ...data.map(linha),
-    regua,
-    `Total: ${qtd} título${qtd === 1 ? '' : 's'} — ${fmtBRL(soma)}`,
-    '',
-    'Permanecemos à disposição para quaisquer esclarecimentos.',
-    '',
-    'Atenciosamente,',
-    'Vegas Card',
-  ].join('\n')
+  return [linha(header), regua, ...data.map(linha), regua, `Total: ${qtd} título${qtd === 1 ? '' : 's'} — ${fmtBRL(soma)}`].join('\n')
+}
+
+// Corpo completo (HTML): primeira tabela (pagamentos do dia, omitida se vazia) +
+// segunda tabela (títulos em aberto).
+function corpoEmailHtml(pagos: EmailCell[], aberto: EmailCell[], parceiro: string, dataPagos: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const partes: string[] = [`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222222;line-height:1.5;">`, `<p>Prezados,</p>`]
+  if (pagos.length > 0) {
+    partes.push(`<p><b>Pagamentos confirmados em ${esc(fmtDateBR(dataPagos))}</b></p>`)
+    partes.push(tabelaHtml('Pago em', pagos))
+  }
+  partes.push(`<p>Segue a relação de títulos em aberto${parceiro ? ` referente a ${esc(alvo)}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.</p>`)
+  partes.push(`<p><b>Títulos em aberto</b></p>`)
+  partes.push(tabelaHtml('Status de bloqueio', aberto))
+  partes.push(`<p>Permanecemos à disposição para quaisquer esclarecimentos.</p>`)
+  partes.push(`<p>Atenciosamente,<br/>Vegas Card</p></div>`)
+  return partes.join('')
+}
+
+// Corpo completo (text/plain) — fallback.
+function corpoEmailTexto(pagos: EmailCell[], aberto: EmailCell[], parceiro: string, dataPagos: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const linhas: string[] = ['Prezados,', '']
+  if (pagos.length > 0) {
+    linhas.push(`Pagamentos confirmados em ${fmtDateBR(dataPagos)}`, '', tabelaTexto('Pago em', pagos), '')
+  }
+  linhas.push(`Segue a relação de títulos em aberto${parceiro ? ` referente a ${alvo}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.`, '')
+  linhas.push('Títulos em aberto', '', tabelaTexto('Status de bloqueio', aberto), '')
+  linhas.push('Permanecemos à disposição para quaisquer esclarecimentos.', '', 'Atenciosamente,', 'Vegas Card')
+  return linhas.join('\n')
+}
+
+function nextDayISO(d: string): string {
+  const dt = new Date(d + 'T00:00:00')
+  dt.setDate(dt.getDate() + 1)
+  return dt.toISOString().slice(0, 10)
 }
 
 async function copiarRico(html: string, texto: string): Promise<boolean> {
@@ -785,8 +812,14 @@ async function copiarRico(html: string, texto: string): Promise<boolean> {
 }
 
 function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parceiro: string; situacao: string; onClose: () => void }) {
+  const supabase = createClient()
   const closeRef = useRef<HTMLButtonElement>(null)
   const [copiado, setCopiado] = useState<'assunto' | 'corpo' | null>(null)
+
+  // Primeira tabela — pagamentos confirmados na data escolhida (padrão: data da
+  // última importação). Depende SÓ da data, não dos filtros da tela.
+  const [dataPagos, setDataPagos] = useState('')
+  const [quitados, setQuitados] = useState<any[]>([])
 
   const onKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => {
@@ -795,10 +828,31 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
     return () => document.removeEventListener('keydown', onKey)
   }, [onKey])
 
-  const linhas = useMemo(() => linhasPermitidas(rows), [rows])
+  // Data padrão = data da última importação (evita repetir pagamento já informado)
+  useEffect(() => {
+    supabase.from('inadimplencia_importacoes').select('importado_em').order('importado_em', { ascending: false }).limit(1)
+      .then(({ data }) => {
+        const dt = (data as any[])?.[0]?.importado_em
+        setDataPagos(dt ? String(dt).slice(0, 10) : new Date().toISOString().slice(0, 10))
+      })
+  }, [supabase])
+
+  // Busca os quitados da data escolhida (quitado_em dentro do dia)
+  useEffect(() => {
+    if (!dataPagos) { setQuitados([]); return }
+    let active = true
+    supabase.from('inadimplencias')
+      .select('razao_social_planilha, id_produto_raw, vencimento, valor, quitado_em')
+      .eq('situacao', 'quitado').gte('quitado_em', dataPagos).lt('quitado_em', nextDayISO(dataPagos)).limit(5000)
+      .then(({ data }) => { if (active) setQuitados((data as any[]) ?? []) })
+    return () => { active = false }
+  }, [dataPagos, supabase])
+
+  const aberto = useMemo(() => linhasAberto(rows), [rows])
+  const pagos = useMemo(() => linhasPagos(quitados), [quitados])
   const assunto = useMemo(() => assuntoEmail(parceiro), [parceiro])
-  const html = useMemo(() => corpoEmailHtml(linhas, parceiro), [linhas, parceiro])
-  const texto = useMemo(() => corpoEmailTexto(linhas, parceiro), [linhas, parceiro])
+  const html = useMemo(() => corpoEmailHtml(pagos, aberto, parceiro, dataPagos), [pagos, aberto, parceiro, dataPagos])
+  const texto = useMemo(() => corpoEmailTexto(pagos, aberto, parceiro, dataPagos), [pagos, aberto, parceiro, dataPagos])
   const incluiQuitados = situacao !== 'em_aberto'
 
   function flash(qual: 'assunto' | 'corpo') { setCopiado(qual); setTimeout(() => setCopiado(c => (c === qual ? null : c)), 1500) }
@@ -813,7 +867,7 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
         <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Gerar e-mail de cobrança</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{linhas.length} título(s) do filtro atual · nada é enviado, apenas copiado</p>
+            <p className="text-xs text-gray-400 mt-0.5">{aberto.length} em aberto (filtro atual) · {pagos.length} pago(s) na data · nada é enviado, apenas copiado</p>
           </div>
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Fechar"
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1">
@@ -822,10 +876,19 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Data dos pagamentos confirmados (primeira tabela) */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="data-pagos">Pagamentos confirmados em</label>
+            <div className="flex items-center gap-2">
+              <input id="data-pagos" type="date" className="input w-48" value={dataPagos} onChange={e => setDataPagos(e.target.value)} />
+              <span className="text-xs text-gray-400">Padrão: data da última importação. Só afeta a tabela de pagamentos.</span>
+            </div>
+          </div>
+
           {incluiQuitados && (
             <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
               <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-              <span>O filtro de situação não está em <b>Em aberto</b>, então o e-mail pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
+              <span>O filtro de situação não está em <b>Em aberto</b>, então a tabela de títulos em aberto pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
             </div>
           )}
 
