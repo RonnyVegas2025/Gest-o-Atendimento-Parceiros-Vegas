@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2, Pencil } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasEmAberto, fmtBRL, fmtDateBR, fmtMes, normKey,
+  SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasAtraso, labelDiasAtraso, fmtBRL, fmtDateBR, fmtMes, normKey,
 } from '@/lib/inadimplencia'
 
 /*
@@ -72,12 +72,14 @@ export default function InadimplenciaPage() {
     })
   }, [])
 
+  // A situação NÃO é filtrada no servidor: os totalizadores respeitam todos os
+  // filtros menos o de situação (cada card mostra a sua). O filtro de situação
+  // é aplicado no cliente, só sobre a tabela/e-mail.
   useEffect(() => {
     async function load() {
       setLoading(true)
       let q = supabase.from('inadimplencias').select('*').order('vencimento', { ascending: true }).limit(2000)
       if (fParceiro) q = q.eq('parceiro_planilha', fParceiro)
-      if (fSituacao) q = q.eq('situacao', fSituacao)
       if (fDe) q = q.gte('vencimento', fDe)
       if (fAte) q = q.lte('vencimento', fAte)
       const { data } = await q
@@ -85,13 +87,14 @@ export default function InadimplenciaPage() {
       setLoading(false)
     }
     load()
-  }, [fParceiro, fSituacao, fDe, fAte, reloadKey])
+  }, [fParceiro, fDe, fAte, reloadKey])
 
-  const filtered = useMemo(() => {
+  // Base para os totalizadores: aplica parceiro/período (servidor) + atraso/busca
+  // (cliente), mas NÃO a situação.
+  const baseFiltered = useMemo(() => {
     const q = normKey(busca)
     return rows.filter(r => {
-      const dias = r.situacao === 'em_aberto' ? diasEmAberto(r.vencimento) : null
-      if (!dentroDaFaixa(dias, fFaixa)) return false
+      if (!dentroDaFaixa(diasAtraso(r), fFaixa)) return false
       if (q) {
         const hay = normKey(r.razao_social_planilha) + ' ' + normKey(r.id_produto_raw)
         if (!hay.includes(q)) return false
@@ -100,10 +103,29 @@ export default function InadimplenciaPage() {
     })
   }, [rows, busca, fFaixa])
 
+  // Tabela e e-mail: base + filtro de situação.
+  const filtered = useMemo(
+    () => (fSituacao ? baseFiltered.filter(r => r.situacao === fSituacao) : baseFiltered),
+    [baseFiltered, fSituacao],
+  )
+
   const totais = useMemo(() => {
-    const abertos = filtered.filter(r => r.situacao === 'em_aberto')
-    return { qtd: abertos.length, soma: abertos.reduce((s, r) => s + (Number(r.valor) || 0), 0) }
-  }, [filtered])
+    const soma = (arr: any[]) => arr.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+    const abertos = baseFiltered.filter(r => r.situacao === 'em_aberto')
+    const quitados = baseFiltered.filter(r => r.situacao === 'quitado')
+    const atrasos = quitados.map(r => diasAtraso(r)).filter((d): d is number => d !== null)
+    const mediaAtraso = atrasos.length ? Math.round(atrasos.reduce((a, b) => a + b, 0) / atrasos.length) : null
+    return {
+      totalQtd: baseFiltered.length, totalSoma: soma(baseFiltered),
+      abertoQtd: abertos.length, abertoSoma: soma(abertos),
+      quitadoQtd: quitados.length, quitadoSoma: soma(quitados),
+      mediaAtraso,
+    }
+  }, [baseFiltered])
+
+  const mediaAtrasoLabel = totais.mediaAtraso === null ? '—'
+    : totais.mediaAtraso <= 0 ? 'no prazo'
+    : `${totais.mediaAtraso} dia${totais.mediaAtraso === 1 ? '' : 's'}`
 
   return (
     <div className="p-6 space-y-4">
@@ -121,15 +143,15 @@ export default function InadimplenciaPage() {
         </div>
       </div>
 
-      {/* Totalizadores (em aberto) */}
+      {/* Totalizadores — respeitam todos os filtros MENOS o de situação */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <CardTotal label="Total de títulos" qtd={totais.totalQtd} valor={totais.totalSoma} />
+        <CardTotal label="Em aberto" qtd={totais.abertoQtd} valor={totais.abertoSoma} valorClass="text-red-700" />
+        <CardTotal label="Quitados" qtd={totais.quitadoQtd} valor={totais.quitadoSoma} valorClass="text-green-700" />
         <div className="card"><div className="card-body">
-          <div className="text-xs text-gray-400">Títulos em aberto</div>
-          <div className="text-2xl font-semibold text-gray-900 mt-1">{totais.qtd}</div>
-        </div></div>
-        <div className="card md:col-span-2"><div className="card-body">
-          <div className="text-xs text-gray-400">Valor total em aberto</div>
-          <div className="text-2xl font-semibold text-red-700 mt-1">{fmtBRL(totais.soma)}</div>
+          <div className="text-xs text-gray-400">Média de atraso</div>
+          <div className="text-2xl font-semibold text-gray-900 mt-1">{mediaAtrasoLabel}</div>
+          <div className="text-xs text-gray-400 mt-0.5">dos títulos quitados</div>
         </div></div>
       </div>
 
@@ -162,7 +184,7 @@ export default function InadimplenciaPage() {
       <div className="card overflow-hidden">
         <div className="table-header grid text-xs" style={{ gridTemplateColumns: COLS }}>
           <span>Razão social</span><span>Parceiro</span><span>ID</span><span>Vencimento</span>
-          <span>Dias em aberto</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span className="sr-only">Detalhe</span>
+          <span>Dias em atraso</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span className="sr-only">Detalhe</span>
         </div>
 
         {loading ? (
@@ -171,7 +193,8 @@ export default function InadimplenciaPage() {
           <div className="py-12 text-center text-sm text-gray-400">Nenhum registro encontrado.</div>
         ) : filtered.slice(0, 500).map(r => {
           const sit = SITUACAO_INADIMPLENCIA[r.situacao] ?? { label: r.situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
-          const dias = r.situacao === 'em_aberto' ? diasEmAberto(r.vencimento) : null
+          const emAberto = r.situacao === 'em_aberto'
+          const dias = diasAtraso(r)               // em aberto: venc→hoje; quitado: venc→pagamento
           const clickable = !!r.empresa_id
           return (
             <div key={r.id}
@@ -186,8 +209,13 @@ export default function InadimplenciaPage() {
               <span className="font-mono text-xs text-gray-600 self-center">{r.id_produto_raw || '—'}</span>
               <span className="text-xs text-gray-500 self-center">{fmtDateBR(r.vencimento)}</span>
               <span className="text-xs self-center">
-                {dias === null ? <span className="text-gray-300">—</span>
-                  : <span className={cn(dias > 90 ? 'text-red-700 font-medium' : dias > 30 ? 'text-amber-700' : 'text-gray-600')}>{dias} dia{dias === 1 ? '' : 's'}</span>}
+                {/* Destaque de alerta (âmbar/vermelho) só para EM ABERTO com muitos
+                    dias; quitado é sempre neutro, mesmo com atraso alto. */}
+                <span className={cn(
+                  emAberto && dias !== null && dias > 90 ? 'text-red-700 font-medium'
+                    : emAberto && dias !== null && dias > 30 ? 'text-amber-700'
+                    : 'text-gray-600',
+                )}>{labelDiasAtraso(r)}</span>
               </span>
               <span className="text-sm text-gray-800 self-center">{fmtBRL(r.valor)}</span>
               <span className="self-center"><span className={cn('badge', sit.badge)}>{sit.label}</span></span>
@@ -310,7 +338,8 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
   }, [row.id])
 
   const sit = SITUACAO_INADIMPLENCIA[situacao] ?? { label: situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
-  const dias = situacao === 'em_aberto' ? diasEmAberto(row.vencimento) : null
+  // Dias em atraso — mesma regra da lista, usando a situação/quitado_em locais.
+  const diasAtrasoLabel = labelDiasAtraso({ situacao, vencimento: row.vencimento, quitado_em: quitadoEm })
 
   // Alvo da reversão manual: alterna entre em_aberto e quitado.
   const novaSituacao = situacao === 'quitado' ? 'em_aberto' : 'quitado'
@@ -427,7 +456,7 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
             <Campo label="Produto (numérico)"><span className="font-mono">{row.produto_id ?? '—'}</span></Campo>
             <Campo label="Sufixo"><span className="font-mono">{disp(row.sufixo)}</span></Campo>
             <Campo label="Vencimento">{fmtDateBR(row.vencimento)}</Campo>
-            <Campo label="Dias em aberto">{dias === null ? '—' : `${dias} dia${dias === 1 ? '' : 's'}`}</Campo>
+            <Campo label="Dias em atraso">{diasAtrasoLabel}</Campo>
             <Campo label="Valor">{fmtBRL(row.valor)}</Campo>
             <Campo label="Tipo">{disp(row.tipo)}</Campo>
             <Campo label="Banco">{disp(row.banco)}</Campo>
@@ -637,6 +666,17 @@ function Campo({ label, children, full, wrap }: { label: string; children: React
 }
 
 const disp = (s: unknown) => (s !== null && s !== undefined && String(s).trim() !== '' ? String(s) : '—')
+
+// Card de totalizador: quantidade em destaque + valor somado abaixo.
+function CardTotal({ label, qtd, valor, valorClass }: { label: string; qtd: number; valor: number; valorClass?: string }) {
+  return (
+    <div className="card"><div className="card-body">
+      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-2xl font-semibold text-gray-900 mt-1">{qtd}</div>
+      <div className={cn('text-sm font-semibold mt-0.5', valorClass ?? 'text-gray-500')}>{fmtBRL(valor)}</div>
+    </div></div>
+  )
+}
 
 // ————————————————————————————————————————————————————————————————
 // Edição manual de campos do título. A situação (em aberto/quitado) NÃO entra

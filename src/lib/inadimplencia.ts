@@ -146,6 +146,34 @@ export function diasEmAberto(vencimento: string | null, ref: Date = new Date()):
   return Math.max(0, diff)
 }
 
+interface DiasRow { situacao: string; vencimento: string | null; quitado_em?: string | null }
+
+/**
+ * Dias em atraso, para qualquer situação:
+ * - em aberto: dias entre o vencimento e HOJE (mínimo 0);
+ * - quitado: dias entre o vencimento e quitado_em (assinado — negativo se pago
+ *   antes do vencimento); null quando quitado_em está vazio.
+ */
+export function diasAtraso(r: DiasRow, ref: Date = new Date()): number | null {
+  if (!r.vencimento) return null
+  if (r.situacao === 'quitado') {
+    if (!r.quitado_em) return null
+    const venc = new Date(r.vencimento.length <= 10 ? r.vencimento + 'T00:00:00' : r.vencimento)
+    const pago = new Date(String(r.quitado_em).slice(0, 10) + 'T00:00:00')
+    if (isNaN(venc.getTime()) || isNaN(pago.getTime())) return null
+    return Math.floor((pago.getTime() - venc.getTime()) / 86400000)
+  }
+  return diasEmAberto(r.vencimento, ref)
+}
+
+/** Rótulo de dias em atraso: "—" (sem dado), "no prazo" (≤ 0) ou "N dia(s)". */
+export function labelDiasAtraso(r: DiasRow, ref: Date = new Date()): string {
+  const d = diasAtraso(r, ref)
+  if (d === null) return '—'
+  if (d <= 0) return 'no prazo'
+  return `${d} dia${d === 1 ? '' : 's'}`
+}
+
 // ————————————————————————————————————————————————————————————————
 // Mapeamento de colunas da planilha
 // ————————————————————————————————————————————————————————————————
