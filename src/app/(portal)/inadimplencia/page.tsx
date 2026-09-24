@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2, Pencil } from 'lucide-react'
+import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, RotateCcw, CheckCircle2, Pencil } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
   SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasAtraso, labelDiasAtraso, fmtBRL, fmtDateBR, fmtMes, normKey,
@@ -159,6 +159,11 @@ export default function InadimplenciaPage() {
     : totais.mediaAtraso <= 0 ? 'no prazo'
     : `${totais.mediaAtraso} dia${totais.mediaAtraso === 1 ? '' : 's'}`
 
+  // Conjunto para a tabela "Títulos em aberto" do e-mail: SEMPRE só os em aberto,
+  // respeitando os demais filtros (parceiro/período/atraso/busca) e IGNORANDO o
+  // seletor de situação — a cobrança cobra o que está em aberto.
+  const abertoParaEmail = useMemo(() => baseFiltered.filter(r => r.situacao === 'em_aberto'), [baseFiltered])
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -168,8 +173,8 @@ export default function InadimplenciaPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link href="/inadimplencia/importacoes" className="btn"><History size={15} /> Importações</Link>
-          <button type="button" onClick={() => setEmailOpen(true)} disabled={filtered.length === 0}
-            title={filtered.length === 0 ? 'Nenhum título no filtro atual para gerar o e-mail' : undefined}
+          <button type="button" onClick={() => setEmailOpen(true)} disabled={baseFiltered.length === 0}
+            title={baseFiltered.length === 0 ? 'Nenhum título no filtro atual para gerar o e-mail' : undefined}
             className="btn disabled:opacity-50 disabled:cursor-not-allowed"><Mail size={15} /> Gerar e-mail</button>
           <Link href="/inadimplencia/importar" className="btn-primary"><Upload size={15} /> Importar planilha</Link>
         </div>
@@ -279,7 +284,7 @@ export default function InadimplenciaPage() {
       </div>
 
       {selected && <DetalheDrawer row={selected} onClose={() => setSelected(null)} onChanged={() => setReloadKey(k => k + 1)} />}
-      {emailOpen && <EmailModal rows={filtered} parceiro={fParceiro} situacao={fSituacao} onClose={() => setEmailOpen(false)} onMarked={() => setReloadKey(k => k + 1)} />}
+      {emailOpen && <EmailModal rows={abertoParaEmail} parceiro={fParceiro} onClose={() => setEmailOpen(false)} onMarked={() => setReloadKey(k => k + 1)} />}
     </div>
   )
 }
@@ -896,7 +901,7 @@ function chunkIds<T>(a: T[], n: number): T[][] {
   return out
 }
 
-function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any[]; parceiro: string; situacao: string; onClose: () => void; onMarked?: () => void }) {
+function EmailModal({ rows, parceiro, onClose, onMarked }: { rows: any[]; parceiro: string; onClose: () => void; onMarked?: () => void }) {
   const supabase = createClient()
   const closeRef = useRef<HTMLButtonElement>(null)
   const [copiado, setCopiado] = useState<'assunto' | 'corpo' | null>(null)
@@ -905,6 +910,7 @@ function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any
   // (situacao='quitado' e quitado_informado_em IS NULL), do parceiro filtrado
   // (ou de todos). O checkbox passa a incluir também os já informados.
   const [quitados, setQuitados] = useState<any[]>([])
+  const [totalQuitados, setTotalQuitados] = useState<number | null>(null)
   const [incluirInformados, setIncluirInformados] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [ultimoEnvio, setUltimoEnvio] = useState<{ enviado_em: string; nome: string } | null | undefined>(undefined)
@@ -962,14 +968,24 @@ function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any
     return () => { active = false }
   }, [parceiro, incluirInformados, supabase])
 
+  // Total de quitados no escopo (para deixar explícito quantos já foram
+  // informados) — evita confundir "quitados a informar" com "total de quitados".
+  useEffect(() => {
+    let active = true
+    let qc = supabase.from('inadimplencias').select('id', { count: 'exact', head: true }).eq('situacao', 'quitado')
+    if (parceiro) qc = qc.eq('parceiro_planilha', parceiro)
+    qc.then(({ count }) => { if (active) setTotalQuitados(count ?? 0) })
+    return () => { active = false }
+  }, [parceiro, supabase])
+
   const aberto = useMemo(() => linhasAberto(rows), [rows])
   const pagos = useMemo(() => linhasPagos(quitados), [quitados])
   const assunto = useMemo(() => assuntoEmail(parceiro), [parceiro])
   const html = useMemo(() => corpoEmailHtml(pagos, aberto, parceiro), [pagos, aberto, parceiro])
   const texto = useMemo(() => corpoEmailTexto(pagos, aberto, parceiro), [pagos, aberto, parceiro])
-  const incluiQuitados = situacao !== 'em_aberto'
   // Só marca os que ainda não têm quitado_informado_em (mesmo com o checkbox on).
   const idsParaMarcar = useMemo(() => quitados.filter(q => !q.quitado_informado_em).map(q => q.id), [quitados])
+  const jaInformados = totalQuitados === null ? null : Math.max(0, totalQuitados - idsParaMarcar.length)
 
   function flash(qual: 'assunto' | 'corpo') { setCopiado(qual); setTimeout(() => setCopiado(c => (c === qual ? null : c)), 1500) }
   async function copiarAssunto() { try { await navigator.clipboard.writeText(assunto); flash('assunto') } catch { /* ignore */ } }
@@ -1007,7 +1023,11 @@ function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any
         <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Gerar e-mail de cobrança</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{aberto.length} em aberto (filtro atual) · {pagos.length} pagamento(s) confirmado(s) · nada é enviado, apenas copiado</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {aberto.length} em aberto (filtro atual) · {idsParaMarcar.length} pagamento(s) a informar
+              {totalQuitados !== null && <> de {totalQuitados} quitado(s){jaInformados ? ` (${jaInformados} já informado(s))` : ''}</>}
+              {' '}· nada é enviado, apenas copiado
+            </p>
           </div>
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Fechar"
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1">
@@ -1029,13 +1049,6 @@ function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any
             Incluir pagamentos já informados
             <span className="text-xs text-gray-400">(por padrão, só os ainda não comunicados)</span>
           </label>
-
-          {incluiQuitados && (
-            <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-              <span>O filtro de situação não está em <b>Em aberto</b>, então a tabela de títulos em aberto pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
-            </div>
-          )}
 
           {/* Assunto */}
           <div className="form-group">
