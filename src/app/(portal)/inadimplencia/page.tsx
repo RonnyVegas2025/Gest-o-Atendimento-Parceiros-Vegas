@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Upload, History, Search, Eye, X, ExternalLink, Lock, Mail, Copy, Check, AlertTriangle, RotateCcw, CheckCircle2, Pencil } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasEmAberto, fmtBRL, fmtDateBR, fmtMes, normKey,
+  SITUACAO_INADIMPLENCIA, MOTIVO_PENDENCIA, diasAtraso, labelDiasAtraso, fmtBRL, fmtDateBR, fmtMes, normKey,
 } from '@/lib/inadimplencia'
 
 /*
@@ -43,7 +43,7 @@ function dentroDaFaixa(dias: number | null, faixa: string): boolean {
   return dias >= a && dias <= b
 }
 
-const COLS = '1fr 120px 80px 95px 105px 110px 100px 120px 44px'
+const COLS = '1fr 120px 80px 95px 105px 110px 100px 120px 90px 44px'
 
 export default function InadimplenciaPage() {
   const supabase = createClient()
@@ -55,6 +55,7 @@ export default function InadimplenciaPage() {
   const [selected, setSelected] = useState<any | null>(null)
   const [emailOpen, setEmailOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   const [fParceiro, setFParceiro] = useState('')
   const [fSituacao, setFSituacao] = useState('em_aberto')
@@ -70,14 +71,44 @@ export default function InadimplenciaPage() {
       for (const r of (data as any[]) ?? []) if (r.parceiro_planilha) set.add(r.parceiro_planilha)
       setParceiros(Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR')))
     })
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data } = await supabase.from('users_profile').select('id').eq('email', user.email).maybeSingle()
+      setCurrentUserId((data as any)?.id ?? null)
+    })
   }, [])
 
+  // Alterna "informado ao parceiro" direto na lista (só para quitados). Atualiza
+  // a linha localmente (sem recarregar) e registra no histórico.
+  async function toggleInformado(r: any) {
+    const antesInformado = !!r.quitado_informado_em
+    const agora = new Date().toISOString()
+    const novo = antesInformado ? null : agora
+    setRows(prev => prev.map(x => (x.id === r.id ? { ...x, quitado_informado_em: novo } : x)))
+    const { error } = await supabase.from('inadimplencias')
+      .update({ quitado_informado_em: novo, atualizado_em: agora }).eq('id', r.id)
+    if (error) {
+      setRows(prev => prev.map(x => (x.id === r.id ? { ...x, quitado_informado_em: r.quitado_informado_em } : x)))
+      return
+    }
+    await supabase.from('inadimplencia_historico').insert({
+      inadimplencia_id: r.id,
+      campo: 'Informado ao parceiro',
+      valor_anterior: antesInformado ? 'Sim' : 'Não',
+      valor_novo: novo ? 'Sim' : 'Não',
+      alterado_por: currentUserId,
+      alterado_em: agora,
+    })
+  }
+
+  // A situação NÃO é filtrada no servidor: os totalizadores respeitam todos os
+  // filtros menos o de situação (cada card mostra a sua). O filtro de situação
+  // é aplicado no cliente, só sobre a tabela/e-mail.
   useEffect(() => {
     async function load() {
       setLoading(true)
       let q = supabase.from('inadimplencias').select('*').order('vencimento', { ascending: true }).limit(2000)
       if (fParceiro) q = q.eq('parceiro_planilha', fParceiro)
-      if (fSituacao) q = q.eq('situacao', fSituacao)
       if (fDe) q = q.gte('vencimento', fDe)
       if (fAte) q = q.lte('vencimento', fAte)
       const { data } = await q
@@ -85,13 +116,14 @@ export default function InadimplenciaPage() {
       setLoading(false)
     }
     load()
-  }, [fParceiro, fSituacao, fDe, fAte, reloadKey])
+  }, [fParceiro, fDe, fAte, reloadKey])
 
-  const filtered = useMemo(() => {
+  // Base para os totalizadores: aplica parceiro/período (servidor) + atraso/busca
+  // (cliente), mas NÃO a situação.
+  const baseFiltered = useMemo(() => {
     const q = normKey(busca)
     return rows.filter(r => {
-      const dias = r.situacao === 'em_aberto' ? diasEmAberto(r.vencimento) : null
-      if (!dentroDaFaixa(dias, fFaixa)) return false
+      if (!dentroDaFaixa(diasAtraso(r), fFaixa)) return false
       if (q) {
         const hay = normKey(r.razao_social_planilha) + ' ' + normKey(r.id_produto_raw)
         if (!hay.includes(q)) return false
@@ -100,10 +132,32 @@ export default function InadimplenciaPage() {
     })
   }, [rows, busca, fFaixa])
 
+  // Tabela e e-mail: base + filtro de situação (inclui os recortes de quitados
+  // por controle de informe).
+  const filtered = useMemo(() => {
+    if (!fSituacao) return baseFiltered
+    if (fSituacao === 'quitado_a_informar') return baseFiltered.filter(r => r.situacao === 'quitado' && !r.quitado_informado_em)
+    if (fSituacao === 'quitado_informado') return baseFiltered.filter(r => r.situacao === 'quitado' && !!r.quitado_informado_em)
+    return baseFiltered.filter(r => r.situacao === fSituacao)
+  }, [baseFiltered, fSituacao])
+
   const totais = useMemo(() => {
-    const abertos = filtered.filter(r => r.situacao === 'em_aberto')
-    return { qtd: abertos.length, soma: abertos.reduce((s, r) => s + (Number(r.valor) || 0), 0) }
-  }, [filtered])
+    const soma = (arr: any[]) => arr.reduce((s, r) => s + (Number(r.valor) || 0), 0)
+    const abertos = baseFiltered.filter(r => r.situacao === 'em_aberto')
+    const quitados = baseFiltered.filter(r => r.situacao === 'quitado')
+    const atrasos = quitados.map(r => diasAtraso(r)).filter((d): d is number => d !== null)
+    const mediaAtraso = atrasos.length ? Math.round(atrasos.reduce((a, b) => a + b, 0) / atrasos.length) : null
+    return {
+      totalQtd: baseFiltered.length, totalSoma: soma(baseFiltered),
+      abertoQtd: abertos.length, abertoSoma: soma(abertos),
+      quitadoQtd: quitados.length, quitadoSoma: soma(quitados),
+      mediaAtraso,
+    }
+  }, [baseFiltered])
+
+  const mediaAtrasoLabel = totais.mediaAtraso === null ? '—'
+    : totais.mediaAtraso <= 0 ? 'no prazo'
+    : `${totais.mediaAtraso} dia${totais.mediaAtraso === 1 ? '' : 's'}`
 
   return (
     <div className="p-6 space-y-4">
@@ -121,15 +175,15 @@ export default function InadimplenciaPage() {
         </div>
       </div>
 
-      {/* Totalizadores (em aberto) */}
+      {/* Totalizadores — respeitam todos os filtros MENOS o de situação */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <CardTotal label="Total de títulos" qtd={totais.totalQtd} valor={totais.totalSoma} />
+        <CardTotal label="Em aberto" qtd={totais.abertoQtd} valor={totais.abertoSoma} valorClass="text-red-700" />
+        <CardTotal label="Quitados" qtd={totais.quitadoQtd} valor={totais.quitadoSoma} valorClass="text-green-700" />
         <div className="card"><div className="card-body">
-          <div className="text-xs text-gray-400">Títulos em aberto</div>
-          <div className="text-2xl font-semibold text-gray-900 mt-1">{totais.qtd}</div>
-        </div></div>
-        <div className="card md:col-span-2"><div className="card-body">
-          <div className="text-xs text-gray-400">Valor total em aberto</div>
-          <div className="text-2xl font-semibold text-red-700 mt-1">{fmtBRL(totais.soma)}</div>
+          <div className="text-xs text-gray-400">Média de atraso</div>
+          <div className="text-2xl font-semibold text-gray-900 mt-1">{mediaAtrasoLabel}</div>
+          <div className="text-xs text-gray-400 mt-0.5">dos títulos quitados</div>
         </div></div>
       </div>
 
@@ -139,9 +193,11 @@ export default function InadimplenciaPage() {
           <option value="">Todos os parceiros</option>
           {parceiros.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className="select w-40" value={fSituacao} onChange={e => setFSituacao(e.target.value)}>
+        <select className="select w-48" value={fSituacao} onChange={e => setFSituacao(e.target.value)}>
           <option value="">Todas as situações</option>
           {Object.entries(SITUACAO_INADIMPLENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
+          <option value="quitado_a_informar">Quitado — a informar</option>
+          <option value="quitado_informado">Quitado — já informado</option>
         </select>
         <select className="select w-44" value={fFaixa} onChange={e => setFFaixa(e.target.value)}>
           {FAIXAS_DIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -162,7 +218,7 @@ export default function InadimplenciaPage() {
       <div className="card overflow-hidden">
         <div className="table-header grid text-xs" style={{ gridTemplateColumns: COLS }}>
           <span>Razão social</span><span>Parceiro</span><span>ID</span><span>Vencimento</span>
-          <span>Dias em aberto</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span className="sr-only">Detalhe</span>
+          <span>Dias em atraso</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span>Informado</span><span className="sr-only">Detalhe</span>
         </div>
 
         {loading ? (
@@ -171,7 +227,8 @@ export default function InadimplenciaPage() {
           <div className="py-12 text-center text-sm text-gray-400">Nenhum registro encontrado.</div>
         ) : filtered.slice(0, 500).map(r => {
           const sit = SITUACAO_INADIMPLENCIA[r.situacao] ?? { label: r.situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
-          const dias = r.situacao === 'em_aberto' ? diasEmAberto(r.vencimento) : null
+          const emAberto = r.situacao === 'em_aberto'
+          const dias = diasAtraso(r)               // em aberto: venc→hoje; quitado: venc→pagamento
           const clickable = !!r.empresa_id
           return (
             <div key={r.id}
@@ -186,12 +243,26 @@ export default function InadimplenciaPage() {
               <span className="font-mono text-xs text-gray-600 self-center">{r.id_produto_raw || '—'}</span>
               <span className="text-xs text-gray-500 self-center">{fmtDateBR(r.vencimento)}</span>
               <span className="text-xs self-center">
-                {dias === null ? <span className="text-gray-300">—</span>
-                  : <span className={cn(dias > 90 ? 'text-red-700 font-medium' : dias > 30 ? 'text-amber-700' : 'text-gray-600')}>{dias} dia{dias === 1 ? '' : 's'}</span>}
+                {/* Destaque de alerta (âmbar/vermelho) só para EM ABERTO com muitos
+                    dias; quitado é sempre neutro, mesmo com atraso alto. */}
+                <span className={cn(
+                  emAberto && dias !== null && dias > 90 ? 'text-red-700 font-medium'
+                    : emAberto && dias !== null && dias > 30 ? 'text-amber-700'
+                    : 'text-gray-600',
+                )}>{labelDiasAtraso(r)}</span>
               </span>
               <span className="text-sm text-gray-800 self-center">{fmtBRL(r.valor)}</span>
               <span className="self-center"><span className={cn('badge', sit.badge)}>{sit.label}</span></span>
               <span className="text-xs text-gray-500 self-center truncate">{r.status_bloqueio || '—'}</span>
+              <span className="self-center flex justify-center" onClick={e => e.stopPropagation()}>
+                {r.situacao === 'quitado' ? (
+                  <input type="checkbox" aria-label="Informado ao parceiro"
+                    checked={!!r.quitado_informado_em}
+                    title={r.quitado_informado_em ? `Informado em ${formatDate(r.quitado_informado_em)}` : 'Não informado ao parceiro'}
+                    onChange={() => toggleInformado(r)}
+                    className="cursor-pointer" />
+                ) : null}
+              </span>
               <span className="self-center flex justify-center" onClick={e => e.stopPropagation()}>
                 <button type="button" aria-label="Ver detalhe completo do título"
                   onClick={() => setSelected(r)}
@@ -208,7 +279,7 @@ export default function InadimplenciaPage() {
       </div>
 
       {selected && <DetalheDrawer row={selected} onClose={() => setSelected(null)} onChanged={() => setReloadKey(k => k + 1)} />}
-      {emailOpen && <EmailModal rows={filtered} parceiro={fParceiro} situacao={fSituacao} onClose={() => setEmailOpen(false)} />}
+      {emailOpen && <EmailModal rows={filtered} parceiro={fParceiro} situacao={fSituacao} onClose={() => setEmailOpen(false)} onMarked={() => setReloadKey(k => k + 1)} />}
     </div>
   )
 }
@@ -310,7 +381,8 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
   }, [row.id])
 
   const sit = SITUACAO_INADIMPLENCIA[situacao] ?? { label: situacao, badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
-  const dias = situacao === 'em_aberto' ? diasEmAberto(row.vencimento) : null
+  // Dias em atraso — mesma regra da lista, usando a situação/quitado_em locais.
+  const diasAtrasoLabel = labelDiasAtraso({ situacao, vencimento: row.vencimento, quitado_em: quitadoEm })
 
   // Alvo da reversão manual: alterna entre em_aberto e quitado.
   const novaSituacao = situacao === 'quitado' ? 'em_aberto' : 'quitado'
@@ -427,7 +499,7 @@ function DetalheDrawer({ row, onClose, onChanged }: { row: any; onClose: () => v
             <Campo label="Produto (numérico)"><span className="font-mono">{row.produto_id ?? '—'}</span></Campo>
             <Campo label="Sufixo"><span className="font-mono">{disp(row.sufixo)}</span></Campo>
             <Campo label="Vencimento">{fmtDateBR(row.vencimento)}</Campo>
-            <Campo label="Dias em aberto">{dias === null ? '—' : `${dias} dia${dias === 1 ? '' : 's'}`}</Campo>
+            <Campo label="Dias em atraso">{diasAtrasoLabel}</Campo>
             <Campo label="Valor">{fmtBRL(row.valor)}</Campo>
             <Campo label="Tipo">{disp(row.tipo)}</Campo>
             <Campo label="Banco">{disp(row.banco)}</Campo>
@@ -576,6 +648,7 @@ function BlocoInformacoesInternas({ row, vals, draft, editando, onField }: {
           : disp(vals.anotacao)}
       </Campo>
       <Campo label="Quitado em">{fmtDateBR(row.quitado_em)}</Campo>
+      <Campo label="Informado ao parceiro">{row.quitado_informado_em ? `Sim · ${formatDate(row.quitado_informado_em)}` : 'Não'}</Campo>
       <Campo label="Primeira detecção">{fmtDateBR(row.primeira_deteccao)}</Campo>
       <Campo label="Última detecção">{fmtDateBR(row.ultima_deteccao)}</Campo>
     </Bloco>
@@ -638,6 +711,17 @@ function Campo({ label, children, full, wrap }: { label: string; children: React
 
 const disp = (s: unknown) => (s !== null && s !== undefined && String(s).trim() !== '' ? String(s) : '—')
 
+// Card de totalizador: quantidade em destaque + valor somado abaixo.
+function CardTotal({ label, qtd, valor, valorClass }: { label: string; qtd: number; valor: number; valorClass?: string }) {
+  return (
+    <div className="card"><div className="card-body">
+      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-2xl font-semibold text-gray-900 mt-1">{qtd}</div>
+      <div className={cn('text-sm font-semibold mt-0.5', valorClass ?? 'text-gray-500')}>{fmtBRL(valor)}</div>
+    </div></div>
+  )
+}
+
 // ————————————————————————————————————————————————————————————————
 // Edição manual de campos do título. A situação (em aberto/quitado) NÃO entra
 // aqui — muda pelo botão de ajuste manual, com motivo obrigatório.
@@ -686,9 +770,12 @@ const CAMPOS_EDIT: {
 // bloco "Informações internas" (data de liquidação, pagamento com juros,
 // status de cartório, quitado em, primeira/última detecção) nunca entram.
 // ————————————————————————————————————————————————————————————————
-interface EmailRow { empresa: string; id: string; venc: string; valor: number | null; status: string }
+// Linhas para as tabelas do e-mail. Só campos PERMITIDOS (externos). O valor já
+// vem numérico; as demais colunas já vêm formatadas em texto.
+interface EmailCell { empresa: string; id: string; venc: string; valor: number | null; extra: string }
 
-function linhasPermitidas(rows: any[]): EmailRow[] {
+/** Títulos em aberto (segunda tabela) — coluna extra = Status de bloqueio. */
+function linhasAberto(rows: any[]): EmailCell[] {
   return [...rows]
     .sort((a, b) => String(a.vencimento ?? '').localeCompare(String(b.vencimento ?? '')))
     .map(r => ({
@@ -696,7 +783,20 @@ function linhasPermitidas(rows: any[]): EmailRow[] {
       id: (r.id_produto_raw ?? '').toString().trim() || '—',
       venc: fmtDateBR(r.vencimento),
       valor: typeof r.valor === 'number' ? r.valor : (r.valor != null ? Number(r.valor) : null),
-      status: (r.status_bloqueio ?? '').toString().trim() || '—',
+      extra: (r.status_bloqueio ?? '').toString().trim() || '—',
+    }))
+}
+
+/** Pagamentos confirmados (primeira tabela) — coluna extra = Pago em (data). */
+function linhasPagos(rows: any[]): EmailCell[] {
+  return [...rows]
+    .sort((a, b) => String(a.vencimento ?? '').localeCompare(String(b.vencimento ?? '')))
+    .map(r => ({
+      empresa: (r.razao_social_planilha ?? '').toString().trim() || '—',
+      id: (r.id_produto_raw ?? '').toString().trim() || '—',
+      venc: fmtDateBR(r.vencimento),
+      valor: typeof r.valor === 'number' ? r.valor : (r.valor != null ? Number(r.valor) : null),
+      extra: fmtDateBR(r.quitado_em ? String(r.quitado_em).slice(0, 10) : null),
     }))
 }
 
@@ -709,65 +809,71 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// HTML autocontido com estilos inline — CSS vars não sobrevivem ao colar no
-// Outlook, então as cores da tabela (cinzas neutros, sem marca) ficam inline.
-function corpoEmailHtml(linhas: EmailRow[], parceiro: string): string {
-  const alvo = parceiro || 'Vegas Card'
+// Tabela HTML autocontida (estilos inline — CSS vars não sobrevivem ao Outlook).
+// Colunas: Empresa | ID | Vencimento | Valor | <extraHeader>. Valor no índice 3.
+function tabelaHtml(extraHeader: string, linhas: EmailCell[]): string {
   const qtd = linhas.length
   const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
   const th = 'style="text-align:left;border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;"'
   const td = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;"'
   const tdR = 'style="border:1px solid #cccccc;padding:6px 10px;vertical-align:top;text-align:right;white-space:nowrap;"'
-  const linhasHtml = linhas.map(l => (
+  const corpo = linhas.map(l => (
     `<tr><td ${td}>${esc(l.empresa)}</td><td ${td}>${esc(l.id)}</td>` +
-    `<td ${tdR}>${esc(l.venc)}</td><td ${tdR}>${esc(fmtBRL(l.valor))}</td><td ${td}>${esc(l.status)}</td></tr>`
+    `<td ${tdR}>${esc(l.venc)}</td><td ${tdR}>${esc(fmtBRL(l.valor))}</td><td ${td}>${esc(l.extra)}</td></tr>`
   )).join('')
   return (
-    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222222;line-height:1.5;">` +
-    `<p>Prezados,</p>` +
-    `<p>Segue a relação de títulos em aberto${parceiro ? ` referente a ${esc(alvo)}` : ''}. ` +
-    `Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.</p>` +
-    `<table style="border-collapse:collapse;font-size:13px;">` +
-    `<thead><tr><th ${th}>Empresa</th><th ${th}>ID</th><th ${th}>Vencimento</th><th ${th}>Valor</th><th ${th}>Status de bloqueio</th></tr></thead>` +
-    `<tbody>${linhasHtml}</tbody>` +
+    `<table style="border-collapse:collapse;font-size:13px;margin:6px 0 14px;">` +
+    `<thead><tr><th ${th}>Empresa</th><th ${th}>ID</th><th ${th}>Vencimento</th><th ${th}>Valor</th><th ${th}>${esc(extraHeader)}</th></tr></thead>` +
+    `<tbody>${corpo}</tbody>` +
     `<tfoot><tr>` +
     `<td colspan="3" style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;">Total — ${qtd} título${qtd === 1 ? '' : 's'}</td>` +
     `<td style="border:1px solid #cccccc;padding:6px 10px;background:#f2f2f7;font-weight:600;text-align:right;white-space:nowrap;">${esc(fmtBRL(soma))}</td>` +
     `<td style="border:1px solid #cccccc;background:#f2f2f7;"></td>` +
-    `</tr></tfoot></table>` +
-    `<p>Permanecemos à disposição para quaisquer esclarecimentos.</p>` +
-    `<p>Atenciosamente,<br/>Vegas Card</p>` +
-    `</div>`
+    `</tr></tfoot></table>`
   )
 }
 
-// Fallback text/plain — tabela alinhada por espaçamento.
-function corpoEmailTexto(linhas: EmailRow[], parceiro: string): string {
-  const alvo = parceiro || 'Vegas Card'
-  const header = ['Empresa', 'ID', 'Vencimento', 'Valor', 'Status de bloqueio']
-  const data = linhas.map(l => [l.empresa, l.id, l.venc, fmtBRL(l.valor), l.status])
+function tabelaTexto(extraHeader: string, linhas: EmailCell[]): string {
+  const header = ['Empresa', 'ID', 'Vencimento', 'Valor', extraHeader]
+  const data = linhas.map(l => [l.empresa, l.id, l.venc, fmtBRL(l.valor), l.extra])
   const widths = header.map((h, i) => Math.max(h.length, ...data.map(r => r[i].length)))
   const pad = (s: string, w: number, right = false) => (right ? s.padStart(w) : s.padEnd(w))
   const linha = (cells: string[]) => cells.map((c, i) => pad(c, widths[i], i === 3)).join('  ').trimEnd()
   const regua = widths.map(w => '-'.repeat(w)).join('  ')
   const qtd = linhas.length
   const soma = linhas.reduce((s, l) => s + (l.valor ?? 0), 0)
-  return [
-    'Prezados,',
-    '',
-    `Segue a relação de títulos em aberto${parceiro ? ` referente a ${alvo}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.`,
-    '',
-    linha(header),
-    regua,
-    ...data.map(linha),
-    regua,
-    `Total: ${qtd} título${qtd === 1 ? '' : 's'} — ${fmtBRL(soma)}`,
-    '',
-    'Permanecemos à disposição para quaisquer esclarecimentos.',
-    '',
-    'Atenciosamente,',
-    'Vegas Card',
-  ].join('\n')
+  return [linha(header), regua, ...data.map(linha), regua, `Total: ${qtd} título${qtd === 1 ? '' : 's'} — ${fmtBRL(soma)}`].join('\n')
+}
+
+// Corpo completo (HTML): primeira tabela (pagamentos confirmados, omitida se
+// vazia — a coluna "Pago em" traz a data real de cada título) + segunda tabela
+// (títulos em aberto).
+function corpoEmailHtml(pagos: EmailCell[], aberto: EmailCell[], parceiro: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const partes: string[] = [`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222222;line-height:1.5;">`, `<p>Prezados,</p>`]
+  if (pagos.length > 0) {
+    partes.push(`<p><b>Pagamentos confirmados</b></p>`)
+    partes.push(tabelaHtml('Pago em', pagos))
+  }
+  partes.push(`<p>Segue a relação de títulos em aberto${parceiro ? ` referente a ${esc(alvo)}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.</p>`)
+  partes.push(`<p><b>Títulos em aberto</b></p>`)
+  partes.push(tabelaHtml('Status de bloqueio', aberto))
+  partes.push(`<p>Permanecemos à disposição para quaisquer esclarecimentos.</p>`)
+  partes.push(`<p>Atenciosamente,<br/>Vegas Card</p></div>`)
+  return partes.join('')
+}
+
+// Corpo completo (text/plain) — fallback.
+function corpoEmailTexto(pagos: EmailCell[], aberto: EmailCell[], parceiro: string): string {
+  const alvo = parceiro || 'Vegas Card'
+  const linhas: string[] = ['Prezados,', '']
+  if (pagos.length > 0) {
+    linhas.push('Pagamentos confirmados', '', tabelaTexto('Pago em', pagos), '')
+  }
+  linhas.push(`Segue a relação de títulos em aberto${parceiro ? ` referente a ${alvo}` : ''}. Pedimos a gentileza de nos retornar sobre a regularização dos valores abaixo.`, '')
+  linhas.push('Títulos em aberto', '', tabelaTexto('Status de bloqueio', aberto), '')
+  linhas.push('Permanecemos à disposição para quaisquer esclarecimentos.', '', 'Atenciosamente,', 'Vegas Card')
+  return linhas.join('\n')
 }
 
 async function copiarRico(html: string, texto: string): Promise<boolean> {
@@ -784,9 +890,28 @@ async function copiarRico(html: string, texto: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(texto); return true } catch { return false }
 }
 
-function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parceiro: string; situacao: string; onClose: () => void }) {
+function chunkIds<T>(a: T[], n: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n))
+  return out
+}
+
+function EmailModal({ rows, parceiro, situacao, onClose, onMarked }: { rows: any[]; parceiro: string; situacao: string; onClose: () => void; onMarked?: () => void }) {
+  const supabase = createClient()
   const closeRef = useRef<HTMLButtonElement>(null)
   const [copiado, setCopiado] = useState<'assunto' | 'corpo' | null>(null)
+
+  // Primeira tabela — pagamentos confirmados ainda NÃO informados ao parceiro
+  // (situacao='quitado' e quitado_informado_em IS NULL), do parceiro filtrado
+  // (ou de todos). O checkbox passa a incluir também os já informados.
+  const [quitados, setQuitados] = useState<any[]>([])
+  const [incluirInformados, setIncluirInformados] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [ultimoEnvio, setUltimoEnvio] = useState<{ enviado_em: string; nome: string } | null | undefined>(undefined)
+
+  const [confirmando, setConfirmando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
 
   const onKey = useCallback((e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }, [onClose])
   useEffect(() => {
@@ -795,15 +920,84 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
     return () => document.removeEventListener('keydown', onKey)
   }, [onKey])
 
-  const linhas = useMemo(() => linhasPermitidas(rows), [rows])
+  // Usuário logado (users_profile.id)
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data } = await supabase.from('users_profile').select('id').eq('email', user.email).maybeSingle()
+      setCurrentUserId((data as any)?.id ?? null)
+    })
+  }, [supabase])
+
+  // Último envio registrado para o parceiro (ou "Todos")
+  useEffect(() => {
+    const alvo = parceiro || 'Todos'
+    let active = true
+    supabase.from('inadimplencia_envios').select('enviado_em, enviado_por').eq('parceiro', alvo)
+      .order('enviado_em', { ascending: false }).limit(1)
+      .then(async ({ data }) => {
+        const env = (data as any[])?.[0]
+        if (!env) { if (active) setUltimoEnvio(null); return }
+        let nome = '—'
+        if (env.enviado_por) {
+          const { data: u } = await supabase.from('users_profile').select('full_name').eq('id', env.enviado_por).maybeSingle()
+          nome = (u as any)?.full_name ?? '—'
+        }
+        if (active) setUltimoEnvio({ enviado_em: env.enviado_em, nome })
+      })
+    return () => { active = false }
+  }, [parceiro, supabase])
+
+  // Quitados a listar. Sempre situacao='quitado' + parceiro filtrado; sem o
+  // checkbox, só os ainda não informados. Ordenado por quitado_em crescente.
+  useEffect(() => {
+    let active = true
+    let q = supabase.from('inadimplencias')
+      .select('id, razao_social_planilha, id_produto_raw, vencimento, valor, quitado_em, quitado_informado_em')
+      .eq('situacao', 'quitado')
+    if (parceiro) q = q.eq('parceiro_planilha', parceiro)
+    if (!incluirInformados) q = q.is('quitado_informado_em', null)
+    q.order('quitado_em', { ascending: true }).limit(5000)
+      .then(({ data }) => { if (active) setQuitados((data as any[]) ?? []) })
+    return () => { active = false }
+  }, [parceiro, incluirInformados, supabase])
+
+  const aberto = useMemo(() => linhasAberto(rows), [rows])
+  const pagos = useMemo(() => linhasPagos(quitados), [quitados])
   const assunto = useMemo(() => assuntoEmail(parceiro), [parceiro])
-  const html = useMemo(() => corpoEmailHtml(linhas, parceiro), [linhas, parceiro])
-  const texto = useMemo(() => corpoEmailTexto(linhas, parceiro), [linhas, parceiro])
+  const html = useMemo(() => corpoEmailHtml(pagos, aberto, parceiro), [pagos, aberto, parceiro])
+  const texto = useMemo(() => corpoEmailTexto(pagos, aberto, parceiro), [pagos, aberto, parceiro])
   const incluiQuitados = situacao !== 'em_aberto'
+  // Só marca os que ainda não têm quitado_informado_em (mesmo com o checkbox on).
+  const idsParaMarcar = useMemo(() => quitados.filter(q => !q.quitado_informado_em).map(q => q.id), [quitados])
 
   function flash(qual: 'assunto' | 'corpo') { setCopiado(qual); setTimeout(() => setCopiado(c => (c === qual ? null : c)), 1500) }
   async function copiarAssunto() { try { await navigator.clipboard.writeText(assunto); flash('assunto') } catch { /* ignore */ } }
   async function copiarCorpo() { if (await copiarRico(html, texto)) flash('corpo') }
+
+  async function marcarInformados() {
+    if (idsParaMarcar.length === 0) return
+    setSalvando(true); setErro('')
+    const agora = new Date().toISOString()
+    for (const part of chunkIds(idsParaMarcar, 300)) {
+      const { error } = await supabase.from('inadimplencias')
+        .update({ quitado_informado_em: agora, atualizado_em: agora }).in('id', part)
+      if (error) { setSalvando(false); setErro('Erro ao marcar os títulos: ' + error.message); return }
+    }
+    const valorAberto = aberto.reduce((s, l) => s + (l.valor ?? 0), 0)
+    const { error: envErr } = await supabase.from('inadimplencia_envios').insert({
+      parceiro: parceiro || 'Todos',
+      qtd_quitados: pagos.length,
+      qtd_abertos: aberto.length,
+      valor_aberto: valorAberto,
+      enviado_por: currentUserId,
+      enviado_em: agora,
+    })
+    if (envErr) { setSalvando(false); setErro('Títulos marcados, mas houve erro ao registrar o envio: ' + envErr.message); return }
+    setSalvando(false)
+    onMarked?.()
+    onClose()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Gerar e-mail de cobrança">
@@ -813,7 +1007,7 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
         <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Gerar e-mail de cobrança</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{linhas.length} título(s) do filtro atual · nada é enviado, apenas copiado</p>
+            <p className="text-xs text-gray-400 mt-0.5">{aberto.length} em aberto (filtro atual) · {pagos.length} pagamento(s) confirmado(s) · nada é enviado, apenas copiado</p>
           </div>
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Fechar"
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1">
@@ -822,10 +1016,24 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Último envio registrado para o parceiro */}
+          <div className="text-xs text-gray-500">
+            {ultimoEnvio === undefined ? 'Verificando último envio...'
+              : ultimoEnvio === null ? <>Nenhum envio registrado para <b>{parceiro || 'Todos'}</b>.</>
+              : <>Último envio para <b>{parceiro || 'Todos'}</b>: {formatDate(ultimoEnvio.enviado_em)} · {ultimoEnvio.nome}</>}
+          </div>
+
+          {/* Incluir pagamentos já informados */}
+          <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={incluirInformados} onChange={e => setIncluirInformados(e.target.checked)} />
+            Incluir pagamentos já informados
+            <span className="text-xs text-gray-400">(por padrão, só os ainda não comunicados)</span>
+          </label>
+
           {incluiQuitados && (
             <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
               <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-              <span>O filtro de situação não está em <b>Em aberto</b>, então o e-mail pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
+              <span>O filtro de situação não está em <b>Em aberto</b>, então a tabela de títulos em aberto pode incluir títulos já <b>quitados</b>. Revise antes de enviar para evitar cobrança indevida.</span>
             </div>
           )}
 
@@ -855,8 +1063,39 @@ function EmailModal({ rows, parceiro, situacao, onClose }: { rows: any[]; parcei
           </div>
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
-          <button type="button" onClick={onClose} className="btn">Fechar</button>
+        {/* Rodapé — copiar corpo, marcar informados e fechar */}
+        <div className="px-5 py-3 border-t border-gray-100">
+          {confirmando ? (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-sm text-gray-700">Marcar <b>{idsParaMarcar.length}</b> pagamento(s) como informados ao parceiro <b>{parceiro || 'Todos'}</b>?</span>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={marcarInformados} disabled={salvando} className="btn-primary disabled:opacity-50">
+                  {salvando ? 'Marcando...' : 'Confirmar'}
+                </button>
+                <button type="button" onClick={() => setConfirmando(false)} disabled={salvando} className="btn">Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                {idsParaMarcar.length === 0
+                  ? <span className="text-xs text-gray-400">Não há pagamentos novos a comunicar.</span>
+                  : <span className="text-xs text-gray-500">{idsParaMarcar.length} pagamento(s) ainda sem marca de informe.</span>}
+                {erro && <div className="text-xs text-red-600 mt-1">{erro}</div>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={copiarCorpo} className="btn btn-sm">
+                  {copiado === 'corpo' ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar corpo</>}
+                </button>
+                <button type="button" onClick={() => setConfirmando(true)} disabled={idsParaMarcar.length === 0}
+                  title={idsParaMarcar.length === 0 ? 'Nenhum pagamento novo para marcar' : undefined}
+                  className="btn disabled:opacity-50 disabled:cursor-not-allowed">
+                  <CheckCircle2 size={15} /> Marcar como informados
+                </button>
+                <button type="button" onClick={onClose} className="btn">Fechar</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

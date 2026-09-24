@@ -146,6 +146,34 @@ export function diasEmAberto(vencimento: string | null, ref: Date = new Date()):
   return Math.max(0, diff)
 }
 
+interface DiasRow { situacao: string; vencimento: string | null; quitado_em?: string | null }
+
+/**
+ * Dias em atraso, para qualquer situação:
+ * - em aberto: dias entre o vencimento e HOJE (mínimo 0);
+ * - quitado: dias entre o vencimento e quitado_em (assinado — negativo se pago
+ *   antes do vencimento); null quando quitado_em está vazio.
+ */
+export function diasAtraso(r: DiasRow, ref: Date = new Date()): number | null {
+  if (!r.vencimento) return null
+  if (r.situacao === 'quitado') {
+    if (!r.quitado_em) return null
+    const venc = new Date(r.vencimento.length <= 10 ? r.vencimento + 'T00:00:00' : r.vencimento)
+    const pago = new Date(String(r.quitado_em).slice(0, 10) + 'T00:00:00')
+    if (isNaN(venc.getTime()) || isNaN(pago.getTime())) return null
+    return Math.floor((pago.getTime() - venc.getTime()) / 86400000)
+  }
+  return diasEmAberto(r.vencimento, ref)
+}
+
+/** Rótulo de dias em atraso: "—" (sem dado), "no prazo" (≤ 0) ou "N dia(s)". */
+export function labelDiasAtraso(r: DiasRow, ref: Date = new Date()): string {
+  const d = diasAtraso(r, ref)
+  if (d === null) return '—'
+  if (d <= 0) return 'no prazo'
+  return `${d} dia${d === 1 ? '' : 's'}`
+}
+
 // ————————————————————————————————————————————————————————————————
 // Mapeamento de colunas da planilha
 // ————————————————————————————————————————————————————————————————
@@ -267,6 +295,19 @@ export interface LinhaNormalizada {
 export function normalizeLinha(row: unknown[], idx: Partial<Record<ColunaKey, number>>): LinhaNormalizada {
   const get = (k: ColunaKey) => (idx[k] === undefined ? undefined : row[idx[k] as number])
   const prod = extractProduto(get('id'))
+  const statusBloqueio = cleanText(get('status_bloqueio')) || null
+  const dataLiquidacao = parseDateISO(get('data_liquidacao'))
+
+  // Pagamento com juros: usa a coluna própria; mas quando há PAGO EM (data de
+  // liquidação) preenchido, deriva também do texto da coluna STATUS
+  // ("COM JUROS" → true, "SEM JUROS" → false; qualquer outro mantém o valor).
+  let pagamentoComJuros = parseBoolJuros(get('pagamento_juros'))
+  if (dataLiquidacao && statusBloqueio) {
+    const s = normKey(statusBloqueio)
+    if (s.includes('com juros')) pagamentoComJuros = true
+    else if (s.includes('sem juros')) pagamentoComJuros = false
+  }
+
   return {
     mes_referencia: parseMonthISO(get('mes')),
     razao_social_planilha: cleanText(get('razao_social')) || null,
@@ -279,10 +320,10 @@ export function normalizeLinha(row: unknown[], idx: Partial<Record<ColunaKey, nu
     valor: parseNum(get('valor')),
     vencimento: parseDateISO(get('vencimento')),
     situacao_cadastro: cleanText(get('ativo_inativo')) || null,
-    status_bloqueio: cleanText(get('status_bloqueio')) || null,
+    status_bloqueio: statusBloqueio,
     status_cartorio: cleanText(get('status_cartorio')) || null,
-    data_liquidacao: parseDateISO(get('data_liquidacao')),
-    pagamento_com_juros: parseBoolJuros(get('pagamento_juros')),
+    data_liquidacao: dataLiquidacao,
+    pagamento_com_juros: pagamentoComJuros,
     parceiro_planilha: normalizeParceiro(get('parceiro')),
   }
 }
