@@ -43,7 +43,7 @@ function dentroDaFaixa(dias: number | null, faixa: string): boolean {
   return dias >= a && dias <= b
 }
 
-const COLS = '1fr 120px 80px 95px 105px 110px 100px 120px 44px'
+const COLS = '1fr 120px 80px 95px 105px 110px 100px 120px 90px 44px'
 
 export default function InadimplenciaPage() {
   const supabase = createClient()
@@ -55,6 +55,7 @@ export default function InadimplenciaPage() {
   const [selected, setSelected] = useState<any | null>(null)
   const [emailOpen, setEmailOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   const [fParceiro, setFParceiro] = useState('')
   const [fSituacao, setFSituacao] = useState('em_aberto')
@@ -70,7 +71,35 @@ export default function InadimplenciaPage() {
       for (const r of (data as any[]) ?? []) if (r.parceiro_planilha) set.add(r.parceiro_planilha)
       setParceiros(Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR')))
     })
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data } = await supabase.from('users_profile').select('id').eq('email', user.email).maybeSingle()
+      setCurrentUserId((data as any)?.id ?? null)
+    })
   }, [])
+
+  // Alterna "informado ao parceiro" direto na lista (só para quitados). Atualiza
+  // a linha localmente (sem recarregar) e registra no histórico.
+  async function toggleInformado(r: any) {
+    const antesInformado = !!r.quitado_informado_em
+    const agora = new Date().toISOString()
+    const novo = antesInformado ? null : agora
+    setRows(prev => prev.map(x => (x.id === r.id ? { ...x, quitado_informado_em: novo } : x)))
+    const { error } = await supabase.from('inadimplencias')
+      .update({ quitado_informado_em: novo, atualizado_em: agora }).eq('id', r.id)
+    if (error) {
+      setRows(prev => prev.map(x => (x.id === r.id ? { ...x, quitado_informado_em: r.quitado_informado_em } : x)))
+      return
+    }
+    await supabase.from('inadimplencia_historico').insert({
+      inadimplencia_id: r.id,
+      campo: 'Informado ao parceiro',
+      valor_anterior: antesInformado ? 'Sim' : 'Não',
+      valor_novo: novo ? 'Sim' : 'Não',
+      alterado_por: currentUserId,
+      alterado_em: agora,
+    })
+  }
 
   // A situação NÃO é filtrada no servidor: os totalizadores respeitam todos os
   // filtros menos o de situação (cada card mostra a sua). O filtro de situação
@@ -103,11 +132,14 @@ export default function InadimplenciaPage() {
     })
   }, [rows, busca, fFaixa])
 
-  // Tabela e e-mail: base + filtro de situação.
-  const filtered = useMemo(
-    () => (fSituacao ? baseFiltered.filter(r => r.situacao === fSituacao) : baseFiltered),
-    [baseFiltered, fSituacao],
-  )
+  // Tabela e e-mail: base + filtro de situação (inclui os recortes de quitados
+  // por controle de informe).
+  const filtered = useMemo(() => {
+    if (!fSituacao) return baseFiltered
+    if (fSituacao === 'quitado_a_informar') return baseFiltered.filter(r => r.situacao === 'quitado' && !r.quitado_informado_em)
+    if (fSituacao === 'quitado_informado') return baseFiltered.filter(r => r.situacao === 'quitado' && !!r.quitado_informado_em)
+    return baseFiltered.filter(r => r.situacao === fSituacao)
+  }, [baseFiltered, fSituacao])
 
   const totais = useMemo(() => {
     const soma = (arr: any[]) => arr.reduce((s, r) => s + (Number(r.valor) || 0), 0)
@@ -161,9 +193,11 @@ export default function InadimplenciaPage() {
           <option value="">Todos os parceiros</option>
           {parceiros.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className="select w-40" value={fSituacao} onChange={e => setFSituacao(e.target.value)}>
+        <select className="select w-48" value={fSituacao} onChange={e => setFSituacao(e.target.value)}>
           <option value="">Todas as situações</option>
           {Object.entries(SITUACAO_INADIMPLENCIA).map(([v, s]) => <option key={v} value={v}>{s.label}</option>)}
+          <option value="quitado_a_informar">Quitado — a informar</option>
+          <option value="quitado_informado">Quitado — já informado</option>
         </select>
         <select className="select w-44" value={fFaixa} onChange={e => setFFaixa(e.target.value)}>
           {FAIXAS_DIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -184,7 +218,7 @@ export default function InadimplenciaPage() {
       <div className="card overflow-hidden">
         <div className="table-header grid text-xs" style={{ gridTemplateColumns: COLS }}>
           <span>Razão social</span><span>Parceiro</span><span>ID</span><span>Vencimento</span>
-          <span>Dias em atraso</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span className="sr-only">Detalhe</span>
+          <span>Dias em atraso</span><span>Valor</span><span>Situação</span><span>Status bloqueio</span><span>Informado</span><span className="sr-only">Detalhe</span>
         </div>
 
         {loading ? (
@@ -220,6 +254,15 @@ export default function InadimplenciaPage() {
               <span className="text-sm text-gray-800 self-center">{fmtBRL(r.valor)}</span>
               <span className="self-center"><span className={cn('badge', sit.badge)}>{sit.label}</span></span>
               <span className="text-xs text-gray-500 self-center truncate">{r.status_bloqueio || '—'}</span>
+              <span className="self-center flex justify-center" onClick={e => e.stopPropagation()}>
+                {r.situacao === 'quitado' ? (
+                  <input type="checkbox" aria-label="Informado ao parceiro"
+                    checked={!!r.quitado_informado_em}
+                    title={r.quitado_informado_em ? `Informado em ${formatDate(r.quitado_informado_em)}` : 'Não informado ao parceiro'}
+                    onChange={() => toggleInformado(r)}
+                    className="cursor-pointer" />
+                ) : null}
+              </span>
               <span className="self-center flex justify-center" onClick={e => e.stopPropagation()}>
                 <button type="button" aria-label="Ver detalhe completo do título"
                   onClick={() => setSelected(r)}
