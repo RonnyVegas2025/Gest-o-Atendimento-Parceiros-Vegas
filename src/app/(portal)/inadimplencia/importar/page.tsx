@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/client'
 import { ArrowLeft, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, X, Columns3 } from 'lucide-react'
 import {
-  mapHeader, normalizeLinha, chaveUnica, fmtBRL, fmtMes, fmtDateBR,
+  mapHeader, normalizeLinha, chaveUnica, parseMonthISO, fmtBRL, fmtMes, fmtDateBR,
   MOTIVO_PENDENCIA, CAMPO_LABEL, type LinhaNormalizada, type ColunaKey, type HeaderMap,
 } from '@/lib/inadimplencia'
 
@@ -178,10 +178,15 @@ export default function ImportarInadimplenciaPage() {
     const ausentes = existentes.filter(e => e.situacao === 'em_aberto' && !fileKeys.has(e.key))
     const ausentesValor = ausentes.reduce((s, e) => s + (Number(e.valor) || 0), 0)
 
-    // Mês de referência predominante
-    const contagem = new Map<string, number>()
-    for (const l of dataRows) if (l.mes_referencia) contagem.set(l.mes_referencia, (contagem.get(l.mes_referencia) ?? 0) + 1)
-    const mesRef = Array.from(contagem.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    // Mês de referência: prioridade para a coluna "Mês" (mês predominante entre
+    // as linhas). Quando a coluna não existe/está vazia, deriva do VENCIMENTO —
+    // também o mês predominante — no formato AAAA-MM-01.
+    const predominante = (getter: (l: LinhaNormalizada) => string | null): string | null => {
+      const cont = new Map<string, number>()
+      for (const l of dataRows) { const m = getter(l); if (m) cont.set(m, (cont.get(m) ?? 0) + 1) }
+      return Array.from(cont.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    }
+    const mesRef = predominante(l => l.mes_referencia) ?? predominante(l => parseMonthISO(l.vencimento))
 
     setPreview({
       mesRef,
@@ -257,7 +262,8 @@ export default function ImportarInadimplenciaPage() {
           vencimento: l.vencimento,
           valor: l.valor,
           cod_boleto: l.cod_boleto,
-          mes_referencia: l.mes_referencia,
+          // Sem a coluna "Mês", usa o mês de referência derivado do vencimento.
+          mes_referencia: l.mes_referencia ?? preview.mesRef,
           razao_social_planilha: l.razao_social_planilha,
           parceiro_planilha: l.parceiro_planilha,
           tipo: l.tipo,
@@ -355,7 +361,7 @@ export default function ImportarInadimplenciaPage() {
         </div>
       </div>
 
-      {erro && (
+      {erro && !preview && (
         <div className="mt-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 px-4 py-3 rounded-xl border border-red-100">
           <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> <span>{erro}</span>
         </div>
@@ -444,6 +450,13 @@ export default function ImportarInadimplenciaPage() {
                   <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">Mostrando as primeiras 200 de {preview.rows.length} linhas.</div>
                 )}
               </div>
+
+              {/* Erro de gravação — junto do botão, para ficar visível ao confirmar */}
+              {erro && (
+                <div className="mt-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 px-4 py-3 rounded-xl border border-red-100">
+                  <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" /> <span>{erro}</span>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 mt-4">
                 <button onClick={gravar} disabled={salvando} className="btn-primary disabled:opacity-50">

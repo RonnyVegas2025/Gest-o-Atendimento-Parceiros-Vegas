@@ -184,7 +184,7 @@ export function labelDiasAtraso(r: DiasRow, ref: Date = new Date()): string {
  * os aliases podem ser escritos aqui na forma humana.
  */
 export const COLUNAS: Record<string, string[]> = {
-  mes:            ['Mês', 'Mes'],
+  mes:            ['Mês', 'Mes', 'MÊS', 'MES'],
   razao_social:   ['Razão Social'],
   cod_boleto:     ['CÓD BOLETO', 'Código Boleto', 'NOSSO N°', 'NOSSO Nº', 'NOSSO NUMERO', 'Nosso Número'],
   id:             ['ID'],
