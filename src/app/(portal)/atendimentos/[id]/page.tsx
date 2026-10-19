@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, formatDate, timeAgo, formatDuration } from '@/lib/utils'
 import { STATUS_LABELS, STATUS_COLORS, PRIORITY_DOT } from '@/lib/constants'
 import type { TicketWithDetails, TicketHistory, Company } from '@/lib/types'
-import { ArrowLeft, Clock, Building2, Send, CheckCircle2, XCircle, AlertTriangle, Search, Edit2, X, Check, Plus, RefreshCw, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Clock, Building2, Send, CheckCircle2, XCircle, AlertTriangle, Search, Edit2, X, Check, Plus, RefreshCw, RotateCcw, Layers } from 'lucide-react'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import Link from 'next/link'
 import { useDepartments } from '@/hooks/useDepartments'
@@ -241,6 +241,12 @@ export default function TicketDetailPage() {
   // Equipe responsável atual (tickets.equipe_id) — lida direto da tabela, pois a
   // view tickets_with_details pode não expor a coluna nova.
   const [ticketEquipeId, setTicketEquipeId] = useState<string>('')
+  // Subtipo / causa: segundo nível de classificação. tickets.subtipo_id lido da
+  // tabela; os subtipos vêm do tipo (ticket_types) casado pelo type_name.
+  const [ticketSubtipoId, setTicketSubtipoId] = useState<string>('')
+  const [allTicketTypes, setAllTicketTypes] = useState<{ id: string; name: string }[]>([])
+  const [allSubtipos, setAllSubtipos] = useState<any[]>([])
+  const [savingSubtipo, setSavingSubtipo] = useState(false)
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
   const [companies, setCompanies] = useState<any[]>([])
   const [companySearch, setCompanySearch] = useState('')
@@ -270,6 +276,12 @@ export default function TicketDetailPage() {
       setCompanies([...fromComp, ...fromConv])
       setParceiros((parts as any[]) ?? [])
     })
+    // Tipos (para casar type_name → id) e subtipos ativos (segundo nível).
+    supabase.from('ticket_types').select('id, name')
+      .then(({ data }) => setAllTicketTypes((data as any[]) ?? []))
+    supabase.from('ticket_subtipos').select('id, ticket_type_id, nome, descricao, department, equipe_id, ordem')
+      .eq('active', true).order('ordem')
+      .then(({ data }) => setAllSubtipos((data as any[]) ?? []))
   }, [])
 
   useEffect(() => {
@@ -287,12 +299,13 @@ export default function TicketDetailPage() {
     const [{ data: t }, { data: h }, { data: tk }] = await Promise.all([
       supabase.from('tickets_with_details').select('*').eq('id', id).single(),
       supabase.from('ticket_history').select('*, user:user_id(full_name)').eq('ticket_id', id).order('created_at', { ascending: true }),
-      supabase.from('tickets').select('equipe_id').eq('id', id).maybeSingle(),
+      supabase.from('tickets').select('equipe_id, subtipo_id').eq('id', id).maybeSingle(),
     ])
     setTicket(t as TicketWithDetails)
     setHistory((h as TicketHistory[]) ?? [])
     const equipeId = (tk as any)?.equipe_id ?? ''
     setTicketEquipeId(equipeId)
+    setTicketSubtipoId((tk as any)?.subtipo_id ?? '')
     setLoading(false)
     if (t) {
       setActionDept((t as any).department ?? 'comercial')
@@ -379,6 +392,37 @@ export default function TicketDetailPage() {
       })
     }
     setSavingEdit(false); setEditing(false); setSelectedCompany(null); setCompanySearch(''); fetchData()
+  }
+
+  // Subtipos ativos do tipo deste atendimento (casa type_name → ticket_types.id).
+  const typeNameAtual = (ticket as any)?.type_name ?? (ticket as any)?.type ?? ''
+  const tipoId = allTicketTypes.find(t => t.name === typeNameAtual)?.id ?? null
+  const subtiposDoTipo = tipoId ? allSubtipos.filter(s => s.ticket_type_id === tipoId) : []
+  const subtipoAtual = subtiposDoTipo.find(s => s.id === ticketSubtipoId) ?? null
+
+  // Escolher um subtipo: grava tickets.subtipo_id, atualiza departamento/equipe
+  // (quando o subtipo os define) e registra o evento na timeline. Não mexe em
+  // SLA nem prioridade — o prazo continua o do tipo, contado desde a abertura.
+  async function handleSubtipoChange(subId: string) {
+    const sub = subtiposDoTipo.find(s => s.id === subId) ?? null
+    setSavingSubtipo(true)
+    const updates: Record<string, any> = { subtipo_id: subId || null }
+    if (sub?.department) updates.department = sub.department
+    if (sub?.equipe_id)  updates.equipe_id  = sub.equipe_id
+    await supabase.from('tickets').update(updates).eq('id', id)
+    if (sub) {
+      const deptLabel   = sub.department ? (DEPARTMENTS.find(d => d.value === sub.department)?.label ?? sub.department) : ''
+      const equipeLabel = sub.equipe_id ? (equipeLabels[sub.equipe_id] ?? '') : ''
+      const destinos = [deptLabel, equipeLabel].filter(Boolean).join(' / ')
+      const reenc = destinos ? ` — encaminhado para ${destinos}` : ''
+      await supabase.from('ticket_history').insert({
+        ticket_id: id,
+        action: `${typeNameAtual || 'Tipo'} › ${sub.nome}${reenc}`,
+        user_id: currentUserId,
+      })
+    }
+    setSavingSubtipo(false)
+    fetchData()
   }
 
   async function cancelTicket() {
@@ -581,6 +625,35 @@ export default function TicketDetailPage() {
               </div>
             )}
           </div>
+
+          {/* SUBTIPO / CAUSA — só aparece quando o tipo tem subtipos ativos */}
+          {subtiposDoTipo.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title"><Layers size={14} /> Subtipo / causa</span>
+                {subtipoAtual && (subtipoAtual.department || subtipoAtual.equipe_id) && (
+                  <span className="text-xs text-gray-400">
+                    Resolve: {[subtipoAtual.department ? (DEPARTMENTS.find(d => d.value === subtipoAtual.department)?.label ?? subtipoAtual.department) : '', subtipoAtual.equipe_id ? (equipeLabels[subtipoAtual.equipe_id] ?? '') : ''].filter(Boolean).join(' / ')}
+                  </span>
+                )}
+              </div>
+              <div className="card-body space-y-2">
+                {!isClosed ? (
+                  <>
+                    <select className="select" value={ticketSubtipoId} onChange={e => handleSubtipoChange(e.target.value)} disabled={savingSubtipo}>
+                      <option value="">Selecione o subtipo (causa)...</option>
+                      {subtiposDoTipo.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-400">
+                      O subtipo é a causa descoberta na análise e define o departamento/equipe de quem resolve. O SLA e a prioridade continuam os do tipo, contados desde a abertura.
+                    </p>
+                  </>
+                ) : (
+                  <div className="text-sm font-medium text-gray-900">{subtipoAtual ? subtipoAtual.nome : <span className="text-gray-400 font-normal">Sem subtipo definido</span>}</div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* TIMELINE */}
           <div className="card">

@@ -5,10 +5,11 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid
 } from 'recharts'
-import { Download, Search, ExternalLink } from 'lucide-react'
+import { Download, Search, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import { useDepartments } from '@/hooks/useDepartments'
 import { useEquipes } from '@/hooks/useEquipes'
+import { cn } from '@/lib/utils'
 
 const normEmail = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
 
@@ -40,6 +41,7 @@ interface Ticket {
   company_id: string; partner_name: string; open_seconds: number
   created_at: string; closed_at: string | null; sla_breached: boolean
   attendant_name: string | null; attendant_id: string | null; equipe_id: string | null
+  subtipo_id: string | null
   requester_name: string; employee_name: string | null
   description: string
 }
@@ -60,6 +62,10 @@ export default function RelatoriosPage() {
   // Equipe de quem atendeu: attendant_id -> users_profile.equipe_id, via e-mail
   // (attendants.email ↔ users_profile.email, lower/trim — os ids não casam).
   const [attendantEquipe, setAttendantEquipe] = useState<Record<string, string>>({})
+  // Subtipos: id -> nome (para a distribuição por tipo)
+  const [subtipoNomes, setSubtipoNomes] = useState<Record<string, string>>({})
+  // Tipo expandido na aba Tipos (mostra a distribuição de subtipos)
+  const [expandedType, setExpandedType] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
   const [period, setPeriod]             = useState('30')
   const [customStart, setCustomStart]   = useState('')
@@ -89,6 +95,11 @@ export default function RelatoriosPage() {
       }
       setAttendantEquipe(map)
     })
+    supabase.from('ticket_subtipos').select('id, nome').then(({ data }) => {
+      const map: Record<string, string> = {}
+      for (const s of (data as any[]) ?? []) map[s.id] = s.nome
+      setSubtipoNomes(map)
+    })
   }, [])
 
   useEffect(() => {
@@ -115,15 +126,16 @@ export default function RelatoriosPage() {
         supabase.from('tickets_with_details').select('*')
           .gte('created_at', since).lte('created_at', until)
           .order('created_at', { ascending: false }),
-        supabase.from('tickets').select('id, equipe_id, attendant_id')
+        supabase.from('tickets').select('id, equipe_id, attendant_id, subtipo_id')
           .gte('created_at', since).lte('created_at', until),
       ])
-      const baseById: Record<string, { equipe_id: string | null; attendant_id: string | null }> = {}
-      for (const r of (base as any[]) ?? []) baseById[r.id] = { equipe_id: r.equipe_id ?? null, attendant_id: r.attendant_id ?? null }
+      const baseById: Record<string, { equipe_id: string | null; attendant_id: string | null; subtipo_id: string | null }> = {}
+      for (const r of (base as any[]) ?? []) baseById[r.id] = { equipe_id: r.equipe_id ?? null, attendant_id: r.attendant_id ?? null, subtipo_id: r.subtipo_id ?? null }
       const merged = ((data as any[]) ?? []).map(t => ({
         ...t,
         equipe_id: t.equipe_id ?? baseById[t.id]?.equipe_id ?? null,
         attendant_id: t.attendant_id ?? baseById[t.id]?.attendant_id ?? null,
+        subtipo_id: t.subtipo_id ?? baseById[t.id]?.subtipo_id ?? null,
       }))
       setTickets(merged as Ticket[])
       setLoading(false)
@@ -202,6 +214,27 @@ export default function RelatoriosPage() {
     const map: Record<string,number> = {}
     tickets.forEach(t => { const name = getTypeName(t); map[name] = (map[name]??0)+1 })
     return Object.entries(map).map(([name,value]) => ({ name, value })).sort((a,b) => b.value-a.value)
+  }, [tickets])
+
+  // Distribuição de subtipos dentro de um tipo (por nome do tipo).
+  function subtiposDoTipo(typeName: string) {
+    const tks = tickets.filter(t => getTypeName(t) === typeName)
+    const map: Record<string, number> = {}
+    tks.forEach(t => {
+      const key = t.subtipo_id ? (subtipoNomes[t.subtipo_id] ?? 'Subtipo removido') : '__none__'
+      map[key] = (map[key] ?? 0) + 1
+    })
+    const tot = tks.length
+    return Object.entries(map)
+      .map(([nome, count]) => ({ nome: nome === '__none__' ? 'Sem subtipo definido' : nome, count, pct: tot > 0 ? count / tot * 100 : 0 }))
+      .sort((a, b) => b.count - a.count)
+  }
+
+  // Classificação: entre os finalizados, quantos ficaram sem subtipo definido.
+  const semSubtipoFinalizados = useMemo(() => {
+    const fins = tickets.filter(t => t.status === 'finalizado')
+    const sem = fins.filter(t => !t.subtipo_id).length
+    return { sem, total: fins.length, pct: fins.length > 0 ? sem / fins.length * 100 : 0 }
   }, [tickets])
 
   const byCompany = useMemo(() => {
@@ -580,6 +613,26 @@ export default function RelatoriosPage() {
           {/* TIPOS */}
           {tab === 'Tipos de Solicitacao' && (
             <div className="grid grid-cols-2 gap-5">
+              {/* Indicador: a classificação por subtipo está sendo feita? */}
+              <div className="card col-span-2">
+                <div className="card-body flex items-center gap-4 flex-wrap">
+                  <div>
+                    <div className="metric-label">Finalizados sem subtipo definido</div>
+                    <div className={'metric-value ' + (semSubtipoFinalizados.sem > 0 ? 'text-amber-600' : 'text-green-600')}>
+                      {semSubtipoFinalizados.sem}
+                      <span className="text-sm font-normal text-gray-400"> / {semSubtipoFinalizados.total}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-[180px]">
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-amber-400" style={{ width: semSubtipoFinalizados.pct + '%' }} />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      {semSubtipoFinalizados.pct.toFixed(0)}% dos atendimentos finalizados foram encerrados sem a causa (subtipo) classificada. Quanto menor, melhor a classificação.
+                    </p>
+                  </div>
+                </div>
+              </div>
               <div className="card">
                 <div className="card-header"><span className="card-title">Distribuicao por tipo</span></div>
                 <div className="card-body">
@@ -616,21 +669,51 @@ export default function RelatoriosPage() {
                 {byType.map((t,i) => {
                   const fins = tickets.filter(tk=>getTypeName(tk)===t.name&&tk.status==='finalizado').length
                   const abts = tickets.filter(tk=>getTypeName(tk)===t.name&&!['finalizado','cancelado','rascunho'].includes(tk.status)).length
+                  const isExpanded = expandedType === t.name
+                  const subRows = isExpanded ? subtiposDoTipo(t.name) : []
                   return (
-                    <div key={i} className="table-row grid" style={{gridTemplateColumns:'1fr 100px 100px 100px 120px'}}>
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{background:COLORS[i%COLORS.length]}} />
-                        <span className="text-sm font-medium text-gray-900">{t.name}</span>
-                      </div>
-                      <span className="text-sm font-semibold text-gray-900">{t.value}</span>
-                      <span className="text-sm text-green-600">{fins}</span>
-                      <span className="text-sm text-blue-600">{abts}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full" style={{width:total>0?(t.value/total*100)+'%':'0%',background:COLORS[i%COLORS.length]}} />
+                    <div key={i}>
+                      <button
+                        onClick={() => setExpandedType(isExpanded ? null : t.name)}
+                        className="table-row grid w-full text-left hover:bg-blue-50/30"
+                        style={{gridTemplateColumns:'1fr 100px 100px 100px 120px'}}
+                        title="Ver distribuicao dos subtipos"
+                      >
+                        <div className="flex items-center gap-2">
+                          {isExpanded ? <ChevronDown size={14} className="text-gray-400 flex-shrink-0" /> : <ChevronRight size={14} className="text-gray-400 flex-shrink-0" />}
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{background:COLORS[i%COLORS.length]}} />
+                          <span className="text-sm font-medium text-gray-900">{t.name}</span>
                         </div>
-                        <span className="text-xs text-gray-500 w-8">{total>0?(t.value/total*100).toFixed(0):0}%</span>
-                      </div>
+                        <span className="text-sm font-semibold text-gray-900 self-center">{t.value}</span>
+                        <span className="text-sm text-green-600 self-center">{fins}</span>
+                        <span className="text-sm text-blue-600 self-center">{abts}</span>
+                        <div className="flex items-center gap-2 self-center">
+                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{width:total>0?(t.value/total*100)+'%':'0%',background:COLORS[i%COLORS.length]}} />
+                          </div>
+                          <span className="text-xs text-gray-500 w-8">{total>0?(t.value/total*100).toFixed(0):0}%</span>
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="bg-gray-50/60 border-b border-gray-100 px-4 py-2">
+                          {subRows.length === 0 ? (
+                            <div className="text-xs text-gray-400 py-1">Nenhum atendimento deste tipo no periodo.</div>
+                          ) : subRows.map((s, j) => (
+                            <div key={j} className="grid items-center py-1" style={{gridTemplateColumns:'1fr 100px 100px 100px 120px'}}>
+                              <span className={cn('text-xs pl-8 truncate', s.nome === 'Sem subtipo definido' ? 'text-amber-600 italic' : 'text-gray-600')}>↳ {s.nome}</span>
+                              <span className="text-xs font-medium text-gray-700">{s.count}</span>
+                              <span></span>
+                              <span></span>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-gray-400" style={{width: s.pct + '%'}} />
+                                </div>
+                                <span className="text-[11px] text-gray-500 w-8">{s.pct.toFixed(0)}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
