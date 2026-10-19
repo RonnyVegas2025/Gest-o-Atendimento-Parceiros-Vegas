@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 import { STATUS_LABELS } from '@/lib/constants'
 import type { TicketStatus } from '@/lib/types'
 
@@ -34,6 +35,7 @@ interface TicketType {
   category: string | null
   subcategory: string | null
   department: string | null
+  equipe_id: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -43,6 +45,7 @@ export default function NovoAtendimentoPage() {
   const supabase = createClient()
   const router = useRouter()
   const { departments: ALL_DEPARTMENTS, loading: deptLoading } = useDepartments()
+  const { equipes, loading: equipesLoading } = useEquipes()
   const [mode, setMode] = useState<'pre' | 'full'>('full')
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -72,6 +75,7 @@ export default function NovoAtendimentoPage() {
     produto_nome:   '',
     type_id:        '',
     department:     '',
+    equipe_id:      '',
     priority:       'media',
     status:         'aberto',
     sla_hours:      8,
@@ -208,6 +212,8 @@ export default function NovoAtendimentoPage() {
         type_id:   type.id,
         priority:  type.priority,
         sla_hours: type.sla_hours,
+        // Preenche a equipe responsável do tipo (editável); em branco se o tipo não tiver.
+        equipe_id: type.equipe_id ?? '',
       }))
     }
   }
@@ -244,6 +250,7 @@ export default function NovoAtendimentoPage() {
       produto_nome:       form.produto_nome || null,
       description:        form.description,
       department:         form.department,
+      equipe_id:          form.equipe_id || null,
       priority:           form.priority,
       status,
       protocol:           '',
@@ -454,11 +461,19 @@ export default function NovoAtendimentoPage() {
             <div className="card-header"><span className="card-title">Classificacao</span></div>
             <div className="card-body space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="form-group col-span-2">
+                <div className="form-group">
                   <label className="form-label">Departamento *</label>
                   <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading} required>
                     <option value="">Selecione o departamento...</option>
                     {ALL_DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Equipe responsável <span className="text-gray-400 font-normal">(automático pelo tipo)</span></label>
+                  <select className="select" value={form.equipe_id} onChange={e => set('equipe_id', e.target.value)} disabled={equipesLoading}>
+                    <option value="">Sem equipe definida</option>
+                    {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
                   </select>
                 </div>
 

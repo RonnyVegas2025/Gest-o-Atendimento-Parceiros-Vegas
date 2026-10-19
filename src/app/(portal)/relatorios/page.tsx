@@ -8,6 +8,9 @@ import {
 import { Download, Search, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
+
+const normEmail = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
 
 const STATUS_LABELS: Record<string, string> = {
   rascunho: 'Rascunho', aberto: 'Aberto', em_analise: 'Em analise',
@@ -16,7 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const COLORS = ['#185FA5','#10B981','#F59E0B','#8B5CF6','#EF4444','#06B6D4','#EC4899','#F97316']
-const TABS = ['Visao Geral', 'Empresas', 'Tipos de Solicitacao', 'Departamentos', 'Detalhado']
+const TABS = ['Visao Geral', 'Empresas', 'Tipos de Solicitacao', 'Departamentos', 'Equipes', 'Detalhado']
 
 const PERIOD_OPTIONS = [
   { value: '7',            label: 'Ultimos 7 dias' },
@@ -36,7 +39,8 @@ interface Ticket {
   company_legal_name: string; company_name_free: string | null
   company_id: string; partner_name: string; open_seconds: number
   created_at: string; closed_at: string | null; sla_breached: boolean
-  attendant_name: string | null; requester_name: string; employee_name: string | null
+  attendant_name: string | null; attendant_id: string | null; equipe_id: string | null
+  requester_name: string; employee_name: string | null
   description: string
 }
 
@@ -51,7 +55,11 @@ function makeCSV(rows: (string | number | null | undefined)[][], filename: strin
 export default function RelatoriosPage() {
   const supabase = createClient()
   const { deptLabels: DEPT_LABELS } = useDepartments()
+  const { equipeLabels } = useEquipes()
   const [tickets, setTickets]           = useState<Ticket[]>([])
+  // Equipe de quem atendeu: attendant_id -> users_profile.equipe_id, via e-mail
+  // (attendants.email ↔ users_profile.email, lower/trim — os ids não casam).
+  const [attendantEquipe, setAttendantEquipe] = useState<Record<string, string>>({})
   const [loading, setLoading]           = useState(true)
   const [period, setPeriod]             = useState('30')
   const [customStart, setCustomStart]   = useState('')
@@ -61,6 +69,27 @@ export default function RelatoriosPage() {
   const [tab, setTab]                   = useState('Visao Geral')
   const [companySearch, setCompanySearch] = useState('')
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
+
+  // Monta o mapa attendant_id -> equipe_id (join por e-mail entre attendants e
+  // users_profile). Independe do período, então carrega uma vez.
+  useEffect(() => {
+    Promise.all([
+      supabase.from('attendants').select('id, email'),
+      supabase.from('users_profile').select('email, equipe_id'),
+    ]).then(([{ data: att }, { data: profs }]) => {
+      const equipeByEmail: Record<string, string> = {}
+      for (const p of (profs as any[]) ?? []) {
+        const k = normEmail(p.email)
+        if (k && p.equipe_id) equipeByEmail[k] = p.equipe_id
+      }
+      const map: Record<string, string> = {}
+      for (const a of (att as any[]) ?? []) {
+        const eq = equipeByEmail[normEmail(a.email)]
+        if (eq) map[a.id] = eq
+      }
+      setAttendantEquipe(map)
+    })
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -81,11 +110,22 @@ export default function RelatoriosPage() {
         since = d.toISOString()
       }
 
-      const { data } = await supabase
-        .from('tickets_with_details').select('*')
-        .gte('created_at', since).lte('created_at', until)
-        .order('created_at', { ascending: false })
-      setTickets((data as Ticket[]) ?? [])
+      // View (métricas) + tickets (equipe_id/attendant_id, que a view pode não expor)
+      const [{ data }, { data: base }] = await Promise.all([
+        supabase.from('tickets_with_details').select('*')
+          .gte('created_at', since).lte('created_at', until)
+          .order('created_at', { ascending: false }),
+        supabase.from('tickets').select('id, equipe_id, attendant_id')
+          .gte('created_at', since).lte('created_at', until),
+      ])
+      const baseById: Record<string, { equipe_id: string | null; attendant_id: string | null }> = {}
+      for (const r of (base as any[]) ?? []) baseById[r.id] = { equipe_id: r.equipe_id ?? null, attendant_id: r.attendant_id ?? null }
+      const merged = ((data as any[]) ?? []).map(t => ({
+        ...t,
+        equipe_id: t.equipe_id ?? baseById[t.id]?.equipe_id ?? null,
+        attendant_id: t.attendant_id ?? baseById[t.id]?.attendant_id ?? null,
+      }))
+      setTickets(merged as Ticket[])
       setLoading(false)
     }
     load()
@@ -110,6 +150,53 @@ export default function RelatoriosPage() {
     tickets.reduce((acc: Record<string,number>, t) => { acc[t.department] = (acc[t.department]??0)+1; return acc }, {})
   ).map(([d,c]) => ({ dept: DEPT_LABELS[d]??d, key: d, count: c, finalizados: tickets.filter(t=>t.department===d&&t.status==='finalizado').length }))
     .sort((a,b) => b.count-a.count), [tickets, DEPT_LABELS])
+
+  // ─── Equipes ───────────────────────────────────────────────────────────────
+  // Volume da demanda: por equipe RESPONSÁVEL (tickets.equipe_id).
+  const byEquipeResp = useMemo(() => {
+    const map: Record<string, number> = {}
+    tickets.forEach(t => { const k = t.equipe_id ?? '__none__'; map[k] = (map[k] ?? 0) + 1 })
+    return Object.entries(map)
+      .map(([k, c]) => ({ key: k, label: k === '__none__' ? 'Sem equipe' : (equipeLabels[k] ?? 'Equipe removida'), count: c }))
+      .sort((a, b) => b.count - a.count)
+  }, [tickets, equipeLabels])
+
+  // Execução real: por equipe de QUEM ATENDEU (equipe do atendente).
+  const byEquipeExec = useMemo(() => {
+    const map: Record<string, number> = {}
+    tickets.forEach(t => {
+      const eq = t.attendant_id ? attendantEquipe[t.attendant_id] : undefined
+      const k = eq ?? '__none__'
+      map[k] = (map[k] ?? 0) + 1
+    })
+    return Object.entries(map)
+      .map(([k, c]) => ({ key: k, label: k === '__none__' ? 'Sem equipe/atendente' : (equipeLabels[k] ?? 'Equipe removida'), count: c }))
+      .sort((a, b) => b.count - a.count)
+  }, [tickets, attendantEquipe, equipeLabels])
+
+  // Apoio entre equipes: atendente de equipe diferente da equipe responsável.
+  const apoio = useMemo(() => {
+    let comAmbas = 0, apoiados = 0
+    tickets.forEach(t => {
+      const resp = t.equipe_id ?? null
+      const exec = t.attendant_id ? (attendantEquipe[t.attendant_id] ?? null) : null
+      if (resp && exec) { comAmbas++; if (resp !== exec) apoiados++ }
+    })
+    return { comAmbas, apoiados, pct: comAmbas > 0 ? (apoiados / comAmbas * 100) : 0 }
+  }, [tickets, attendantEquipe])
+
+  // Tempo médio de resolução por equipe responsável (finalizados).
+  const tempoMedioPorEquipe = useMemo(() => {
+    const acc: Record<string, { soma: number; n: number }> = {}
+    tickets.filter(t => t.status === 'finalizado' && t.open_seconds > 0).forEach(t => {
+      const k = t.equipe_id ?? '__none__'
+      if (!acc[k]) acc[k] = { soma: 0, n: 0 }
+      acc[k].soma += t.open_seconds; acc[k].n++
+    })
+    return Object.entries(acc)
+      .map(([k, v]) => ({ key: k, label: k === '__none__' ? 'Sem equipe' : (equipeLabels[k] ?? 'Equipe removida'), horas: v.soma / v.n / 3600, n: v.n }))
+      .sort((a, b) => b.n - a.n)
+  }, [tickets, equipeLabels])
 
   const byType = useMemo(() => {
     const map: Record<string,number> = {}
@@ -215,6 +302,20 @@ export default function RelatoriosPage() {
     makeCSV(rows, `relatorio_departamentos_${periodLabel}.csv`)
   }
 
+  function exportEquipes() {
+    const rows: any[] = [['Equipe responsavel','Atendimentos (demanda)','Como executora','Tempo medio resolucao (h)']]
+    const execByLabel: Record<string, number> = {}
+    byEquipeExec.forEach(e => { execByLabel[e.label] = e.count })
+    const tempoByKey: Record<string, string> = {}
+    tempoMedioPorEquipe.forEach(e => { tempoByKey[e.key] = e.horas.toFixed(1) })
+    byEquipeResp.forEach(e => {
+      rows.push([e.label, e.count, execByLabel[e.label] ?? 0, tempoByKey[e.key] ?? '—'])
+    })
+    rows.push([])
+    rows.push(['Apoio entre equipes (atendente de equipe diferente da responsavel)', apoio.apoiados, `${apoio.pct.toFixed(1)}% de ${apoio.comAmbas} com ambas as equipes identificadas`])
+    makeCSV(rows, `relatorio_equipes_${periodLabel}.csv`)
+  }
+
   // Botão de exportar contextual
   function ExportButton() {
     if (tab === 'Empresas' && selectedCompany) {
@@ -227,6 +328,7 @@ export default function RelatoriosPage() {
     if (tab === 'Empresas') return <button onClick={exportPorEmpresa} className="btn"><Download size={14} /> Excel — Empresas</button>
     if (tab === 'Tipos de Solicitacao') return <button onClick={exportPorTipo} className="btn"><Download size={14} /> Excel — Tipos</button>
     if (tab === 'Departamentos') return <button onClick={exportPorDepartamento} className="btn"><Download size={14} /> Excel — Departamentos</button>
+    if (tab === 'Equipes') return <button onClick={exportEquipes} className="btn"><Download size={14} /> Excel — Equipes</button>
     return <button onClick={exportGeral} className="btn"><Download size={14} /> Excel — Geral</button>
   }
 
@@ -576,6 +678,83 @@ export default function RelatoriosPage() {
                   )
                 })}
               </div>
+            </div>
+          )}
+
+          {/* EQUIPES */}
+          {tab === 'Equipes' && (
+            <div className="space-y-5">
+              {/* Indicador de apoio entre equipes */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="metric-card">
+                  <div className="metric-label">Apoio entre equipes</div>
+                  <div className="metric-value text-purple-600">{apoio.apoiados}</div>
+                  <div className="text-xs text-gray-400 mt-1">atendimentos em que o atendente é de equipe diferente da responsável</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">% de apoio</div>
+                  <div className="metric-value text-purple-600">{apoio.pct.toFixed(1)}%</div>
+                  <div className="text-xs text-gray-400 mt-1">de {apoio.comAmbas} com equipe responsável e do atendente identificadas</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Equipes responsáveis</div>
+                  <div className="metric-value text-gray-900">{byEquipeResp.filter(e => e.key !== '__none__').length}</div>
+                  <div className="text-xs text-gray-400 mt-1">com atendimentos no período</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-5">
+                {/* Por equipe responsável (demanda) */}
+                <div className="card">
+                  <div className="card-header"><span className="card-title">Por equipe responsável (demanda)</span></div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={byEquipeResp.map(e => ({ nome: e.label, count: e.count }))} layout="vertical" margin={{top:0,right:40,left:10,bottom:0}}>
+                        <XAxis type="number" tick={{fontSize:11}} allowDecimals={false} />
+                        <YAxis dataKey="nome" type="category" tick={{fontSize:10}} width={150} />
+                        <Tooltip formatter={(v:number)=>[v,'Atendimentos']} />
+                        <Bar dataKey="count" fill="#185FA5" radius={[0,4,4,0]} name="Responsável" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Por equipe de quem atendeu (execução) */}
+                <div className="card">
+                  <div className="card-header"><span className="card-title">Por equipe de quem atendeu (execução)</span></div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={byEquipeExec.map(e => ({ nome: e.label, count: e.count }))} layout="vertical" margin={{top:0,right:40,left:10,bottom:0}}>
+                        <XAxis type="number" tick={{fontSize:11}} allowDecimals={false} />
+                        <YAxis dataKey="nome" type="category" tick={{fontSize:10}} width={150} />
+                        <Tooltip formatter={(v:number)=>[v,'Atendimentos']} />
+                        <Bar dataKey="count" fill="#10B981" radius={[0,4,4,0]} name="Executora" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tempo médio de resolução por equipe */}
+              <div className="card">
+                <div className="card-header"><span className="card-title">Tempo médio de resolução por equipe responsável</span></div>
+                <div className="table-header grid" style={{gridTemplateColumns:'1fr 160px 160px'}}>
+                  <span>Equipe</span><span>Finalizados</span><span>Tempo médio</span>
+                </div>
+                {tempoMedioPorEquipe.length === 0 ? (
+                  <div className="py-8 text-center text-sm text-gray-400">Nenhum atendimento finalizado no período.</div>
+                ) : tempoMedioPorEquipe.map(e => (
+                  <div key={e.key} className="table-row grid" style={{gridTemplateColumns:'1fr 160px 160px'}}>
+                    <span className="text-sm font-medium text-gray-900 self-center">{e.label}</span>
+                    <span className="text-sm text-gray-700 self-center">{e.n}</span>
+                    <span className="text-sm font-semibold text-[#185FA5] self-center">{e.horas.toFixed(1)}h</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-gray-400">
+                A equipe de quem atendeu vem do perfil do atendente (users_profile.equipe_id). A equipe responsável é a classificação do atendimento. A classificação por equipe não restringe visibilidade.
+              </p>
             </div>
           )}
 

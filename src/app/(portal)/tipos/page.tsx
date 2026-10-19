@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Check, Clock, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 
 interface TicketType {
   id: string
@@ -12,6 +13,7 @@ interface TicketType {
   category: string | null
   subcategory: string | null
   department: string | null
+  equipe_id: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -36,13 +38,14 @@ const SLA_OPTIONS = [
 ]
 
 const EMPTY = {
-  name: '', description: '', category: '', subcategory: '', department: '',
+  name: '', description: '', category: '', subcategory: '', department: '', equipe_id: '',
   priority: 'media' as 'baixa' | 'media' | 'alta', sla_hours: 8
 }
 
 export default function TiposPage() {
   const supabase = createClient()
   const { departments, loading: deptLoading } = useDepartments()
+  const { equipes, loading: equipesLoading } = useEquipes()
   const [types, setTypes]         = useState<TicketType[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -89,6 +92,7 @@ export default function TiposPage() {
       name: t.name, description: t.description ?? '',
       category: t.category ?? '', subcategory: t.subcategory ?? '',
       department: t.department ?? '',
+      equipe_id: t.equipe_id ?? '',
       priority: t.priority, sla_hours: t.sla_hours
     })
     setCategoryInput(t.category ?? '')
@@ -107,6 +111,7 @@ export default function TiposPage() {
       category:    categoryInput.trim() || null,
       subcategory: form.subcategory.trim() || null,
       department:  form.department || null,
+      equipe_id:   form.equipe_id || null,
       priority:    form.priority,
       sla_hours:   form.sla_hours,
       updated_at:  new Date().toISOString(),
@@ -299,15 +304,26 @@ export default function TiposPage() {
                 />
               </div>
 
-              {/* Departamento (opcional) — permite classificar o tipo por departamento */}
-              <div className="form-group">
-                <label className="form-label">Departamento <span className="text-gray-400 font-normal">(opcional)</span></label>
-                <select className="select" value={form.department}
-                  onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
-                  <option value="">Sem departamento (não classificado)</option>
-                  {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                </select>
-                <p className="text-xs text-gray-400 mt-1">Ao definir, este tipo passa a aparecer só para o departamento escolhido no novo atendimento.</p>
+              {/* Departamento e Equipe (opcionais) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Departamento <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <select className="select" value={form.department}
+                    onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
+                    <option value="">Sem departamento</option>
+                    {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Ao definir, este tipo aparece só para o departamento no novo atendimento.</p>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Equipe responsável <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <select className="select" value={form.equipe_id}
+                    onChange={e => setForm(f => ({ ...f, equipe_id: e.target.value }))} disabled={equipesLoading}>
+                    <option value="">Sem equipe</option>
+                    {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Preenche a equipe do atendimento automaticamente ao escolher este tipo.</p>
+                </div>
               </div>
 
               {/* Nome */}
