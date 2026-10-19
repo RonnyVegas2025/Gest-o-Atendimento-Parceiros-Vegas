@@ -222,7 +222,7 @@ const SLA_OPTIONS = [
 ]
 
 const EMPTY = {
-  name: '', description: '', category: '', subcategory: '', department: '', equipe_id: '',
+  name: '', description: '', category: '', department: '', equipe_id: '',
   priority: 'media' as 'baixa' | 'media' | 'alta', sla_hours: 8
 }
 
@@ -303,7 +303,7 @@ export default function TiposPage() {
   function openEdit(t: TicketType) {
     setForm({
       name: t.name, description: t.description ?? '',
-      category: t.category ?? '', subcategory: t.subcategory ?? '',
+      category: t.category ?? '',
       department: t.department ?? '',
       equipe_id: t.equipe_id ?? '',
       priority: t.priority, sla_hours: t.sla_hours
@@ -322,7 +322,6 @@ export default function TiposPage() {
       name:        form.name.trim(),
       description: form.description || null,
       category:    categoryInput.trim() || null,
-      subcategory: form.subcategory.trim() || null,
       department:  form.department || null,
       equipe_id:   form.equipe_id || null,
       priority:    form.priority,
@@ -411,7 +410,7 @@ export default function TiposPage() {
                   {isOpen && (
                     <>
                       <div className="table-header grid" style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
-                        <span>Nome / Subcategoria</span><span>Departamento</span><span>Equipe</span><span>SLA</span><span>Descricao</span><span>Prioridade</span><span>Status</span><span>Acoes</span>
+                        <span>Nome</span><span>Departamento</span><span>Equipe</span><span>SLA</span><span>Descricao</span><span>Prioridade</span><span>Status</span><span>Acoes</span>
                       </div>
                       {items.map(type => (
                         <div key={type.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
@@ -425,7 +424,7 @@ export default function TiposPage() {
                             <button
                               onClick={() => setSubtiposType(type)}
                               className="mt-1 flex items-center gap-1 text-[11px] text-[#185FA5] hover:underline"
-                              title="Gerenciar subtipos (segundo nivel de classificacao)"
+                              title="Cadastre aqui as causas (subtipos) deste tipo — cada uma com departamento, equipe e SLA proprios"
                             >
                               <Layers size={11} />
                               Subtipos
@@ -547,17 +546,6 @@ export default function TiposPage() {
                 <p className="text-xs text-gray-400 mt-1">Digite uma existente ou crie uma nova categoria</p>
               </div>
 
-              {/* Subcategoria */}
-              <div className="form-group">
-                <label className="form-label">Subcategoria <span className="text-gray-400 font-normal">(opcional)</span></label>
-                <input
-                  className="input"
-                  placeholder="Ex: Prorrogar Boleto, Reenvio, Boleto Errado..."
-                  value={form.subcategory}
-                  onChange={e => setForm(f => ({ ...f, subcategory: e.target.value }))}
-                />
-              </div>
-
               {/* Departamento e Equipe (opcionais) */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-group">
@@ -621,7 +609,6 @@ export default function TiposPage() {
                 {categoryInput && (
                   <div className="text-gray-500">
                     Caminho: <strong>{categoryInput}</strong>
-                    {form.subcategory ? <> › <strong>{form.subcategory}</strong></> : null}
                     {form.name ? <> › <strong>{form.name}</strong></> : null}
                   </div>
                 )}
