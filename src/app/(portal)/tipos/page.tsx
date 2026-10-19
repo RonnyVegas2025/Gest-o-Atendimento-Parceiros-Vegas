@@ -30,9 +30,10 @@ interface Subtipo {
   equipe_id: string | null
   active: boolean
   ordem: number | null
+  sla_hours: number | null
 }
 
-const EMPTY_SUB = { nome: '', descricao: '', department: '', equipe_id: '', ordem: 0 }
+const EMPTY_SUB = { nome: '', descricao: '', department: '', equipe_id: '', ordem: 0, sla_hours: '' }
 
 // ─── Gestão de subtipos de um tipo (segundo nível de classificação) ───────────
 function SubtiposModal({
@@ -65,7 +66,7 @@ function SubtiposModal({
 
   function resetForm() { setForm(EMPTY_SUB); setEditingId(null); setError('') }
   function openEdit(s: Subtipo) {
-    setForm({ nome: s.nome, descricao: s.descricao ?? '', department: s.department ?? '', equipe_id: s.equipe_id ?? '', ordem: s.ordem ?? 0 })
+    setForm({ nome: s.nome, descricao: s.descricao ?? '', department: s.department ?? '', equipe_id: s.equipe_id ?? '', ordem: s.ordem ?? 0, sla_hours: s.sla_hours != null ? String(s.sla_hours) : '' })
     setEditingId(s.id); setError('')
   }
 
@@ -80,6 +81,7 @@ function SubtiposModal({
       department: form.department || null,
       equipe_id:  form.equipe_id || null,
       ordem:      Number(form.ordem) || 0,
+      sla_hours:  form.sla_hours ? Number(form.sla_hours) : null,
     }
     const { error: err } = editingId
       ? await supabase.from('ticket_subtipos').update(payload).eq('id', editingId)
@@ -101,7 +103,7 @@ function SubtiposModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
           <div>
             <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Layers size={15} className="text-[#185FA5]" /> Subtipos de {type.name}</h2>
@@ -117,25 +119,30 @@ function SubtiposModal({
           ) : (
             <>
               <div className="card overflow-hidden">
-                <div className="table-header grid text-xs" style={{ gridTemplateColumns: '60px 1fr 120px 130px 150px' }}>
-                  <span>Ordem</span><span>Nome / Descricao</span><span>Departamento</span><span>Equipe</span><span>Acoes</span>
+                <div className="table-header grid text-xs" style={{ gridTemplateColumns: '48px minmax(0,1fr) 130px 140px 90px auto' }}>
+                  <span>Ordem</span><span>Nome / Descricao</span><span>Departamento</span><span>Equipe</span><span>SLA</span><span>Acoes</span>
                 </div>
                 {ativos.length === 0 ? (
                   <div className="py-6 text-center text-sm text-gray-400">Nenhum subtipo ativo. Cadastre abaixo.</div>
                 ) : ativos.map(s => (
-                  <div key={s.id} className="table-row grid" style={{ gridTemplateColumns: '60px 1fr 120px 130px 150px' }}>
-                    <span className="text-xs text-gray-400 self-center">{s.ordem ?? 0}</span>
-                    <div className="self-center min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">{s.nome}</div>
-                      {s.descricao && <div className="text-xs text-gray-400 truncate">{s.descricao}</div>}
+                  <div key={s.id} className="table-row grid items-center" style={{ gridTemplateColumns: '48px minmax(0,1fr) 130px 140px 90px auto' }}>
+                    <span className="text-xs text-gray-400">{s.ordem ?? 0}</span>
+                    <div className="min-w-0 pr-3">
+                      <div className="text-sm font-medium text-gray-900 break-words">{s.nome}</div>
+                      {s.descricao && <div className="text-xs text-gray-400 break-words">{s.descricao}</div>}
                     </div>
-                    <span className="text-xs self-center truncate">
+                    <span className="text-xs truncate">
                       {s.department ? <span className="text-gray-600">{deptLabels[s.department] ?? s.department}</span> : <span className="text-gray-300">—</span>}
                     </span>
-                    <span className="text-xs self-center truncate">
+                    <span className="text-xs truncate">
                       {s.equipe_id ? <span className="text-gray-600">{equipeLabels[s.equipe_id] ?? 'Equipe inativa'}</span> : <span className="text-gray-300">—</span>}
                     </span>
-                    <div className="flex items-center gap-1 self-center">
+                    <span className="text-xs">
+                      {s.sla_hours != null
+                        ? <span className="inline-flex items-center gap-1 text-gray-600"><Clock size={11} className="text-gray-400" />{s.sla_hours}h</span>
+                        : <span className="text-gray-300" title="Usa o SLA do tipo">—</span>}
+                    </span>
+                    <div className="flex items-center gap-1">
                       <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Editar"><Pencil size={12} /></button>
                       <button onClick={() => toggleActive(s)} className="px-2 py-1 rounded-lg hover:bg-amber-50 text-gray-500 hover:text-amber-600 text-xs">Inativar</button>
                     </div>
@@ -159,7 +166,7 @@ function SubtiposModal({
               {/* Formulário de cadastro/edição */}
               <form onSubmit={save} className="card p-4 space-y-4 border-blue-100">
                 <div className="text-xs font-semibold text-gray-600">{editingId ? 'Editar subtipo' : 'Novo subtipo'}</div>
-                <div className="grid grid-cols-[1fr_90px] gap-4">
+                <div className="grid grid-cols-[1fr_80px_170px] gap-4">
                   <div className="form-group">
                     <label className="form-label">Nome *</label>
                     <input className="input" placeholder="Ex: Servico nao liberado no contrato" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required />
@@ -167,6 +174,13 @@ function SubtiposModal({
                   <div className="form-group">
                     <label className="form-label">Ordem</label>
                     <input className="input" type="number" min={0} value={form.ordem} onChange={e => setForm(f => ({ ...f, ordem: Number(e.target.value) }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">SLA (prazo) <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <select className="select" value={form.sla_hours} onChange={e => setForm(f => ({ ...f, sla_hours: e.target.value }))}>
+                      <option value="">Usa o SLA do tipo</option>
+                      {SLA_OPTIONS.map(o => <option key={o.value} value={String(o.value)}>{o.label}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div className="form-group">

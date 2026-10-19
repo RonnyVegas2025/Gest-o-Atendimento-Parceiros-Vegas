@@ -279,7 +279,7 @@ export default function TicketDetailPage() {
     // Tipos (para casar type_name → id) e subtipos ativos (segundo nível).
     supabase.from('ticket_types').select('id, name')
       .then(({ data }) => setAllTicketTypes((data as any[]) ?? []))
-    supabase.from('ticket_subtipos').select('id, ticket_type_id, nome, descricao, department, equipe_id, ordem')
+    supabase.from('ticket_subtipos').select('id, ticket_type_id, nome, descricao, department, equipe_id, ordem, sla_hours')
       .eq('active', true).order('ordem')
       .then(({ data }) => setAllSubtipos((data as any[]) ?? []))
   }, [])
@@ -401,14 +401,30 @@ export default function TicketDetailPage() {
   const subtipoAtual = subtiposDoTipo.find(s => s.id === ticketSubtipoId) ?? null
 
   // Escolher um subtipo: grava tickets.subtipo_id, atualiza departamento/equipe
-  // (quando o subtipo os define) e registra o evento na timeline. Não mexe em
-  // SLA nem prioridade — o prazo continua o do tipo, contado desde a abertura.
+  // (quando o subtipo os define) e registra o evento na timeline. Quando o
+  // subtipo tem SLA próprio, recalcula o prazo a partir da ABERTURA
+  // (created_at + sla_hours), nunca do momento da escolha. A prioridade
+  // continua sendo a do tipo — não é alterada aqui.
   async function handleSubtipoChange(subId: string) {
     const sub = subtiposDoTipo.find(s => s.id === subId) ?? null
     setSavingSubtipo(true)
     const updates: Record<string, any> = { subtipo_id: subId || null }
     if (sub?.department) updates.department = sub.department
     if (sub?.equipe_id)  updates.equipe_id  = sub.equipe_id
+
+    // Recalcula o prazo quando o subtipo define um SLA próprio.
+    const createdAt = (ticket as any)?.created_at ? new Date((ticket as any).created_at) : null
+    const oldDeadline = (ticket as any)?.sla_deadline ? new Date((ticket as any).sla_deadline) : null
+    const oldHoras = createdAt && oldDeadline ? Math.round((oldDeadline.getTime() - createdAt.getTime()) / 3600000) : null
+    let prazoMsg = ''
+    if (sub?.sla_hours != null && createdAt) {
+      const novoDeadline = new Date(createdAt.getTime() + sub.sla_hours * 3600000)
+      updates.sla_deadline = novoDeadline.toISOString()
+      prazoMsg = oldHoras != null
+        ? `Prazo alterado de ${oldHoras}h para ${sub.sla_hours}h (subtipo: ${sub.nome})`
+        : `Prazo definido em ${sub.sla_hours}h a partir da abertura (subtipo: ${sub.nome})`
+    }
+
     await supabase.from('tickets').update(updates).eq('id', id)
     if (sub) {
       const deptLabel   = sub.department ? (DEPARTMENTS.find(d => d.value === sub.department)?.label ?? sub.department) : ''
@@ -420,6 +436,11 @@ export default function TicketDetailPage() {
         action: `${typeNameAtual || 'Tipo'} › ${sub.nome}${reenc}`,
         user_id: currentUserId,
       })
+      if (prazoMsg) {
+        await supabase.from('ticket_history').insert({
+          ticket_id: id, action: prazoMsg, user_id: currentUserId,
+        })
+      }
     }
     setSavingSubtipo(false)
     fetchData()
