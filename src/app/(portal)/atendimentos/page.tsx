@@ -10,6 +10,9 @@ import { Plus, Zap, AlertTriangle, Clock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { TicketWithDetails } from '@/lib/types'
 
+// Sentinela de filtro para atendimentos sem equipe atribuída
+const SEM_EQUIPE = '__none__'
+
 const STATUS_BADGE: Record<string, string> = {
   rascunho:           'bg-amber-50 text-amber-600 border border-amber-200',
   aberto:             'bg-blue-50 text-blue-700 border border-blue-200',
@@ -135,10 +138,33 @@ export default function AtendimentosPage() {
     load()
   }, [status, department, search, attendant])
 
-  const ticketsVis = equipe ? tickets.filter(t => resolveEquipe(t) === equipe) : tickets
+  const ticketsVis = equipe
+    ? tickets.filter(t => (equipe === SEM_EQUIPE ? resolveEquipe(t) === '' : resolveEquipe(t) === equipe))
+    : tickets
   const drafts = ticketsVis.filter(t => t.status === 'rascunho')
   const active = ticketsVis.filter(t => !['rascunho','finalizado','cancelado'].includes(t.status))
   const closed = ticketsVis.filter(t => ['finalizado','cancelado'].includes(t.status))
+
+  // Contagem de atendimentos EM ABERTO por equipe (ignora o filtro de equipe para
+  // que clicar num chip não faça os demais sumirem). Marca os vencidos (SLA estourado).
+  const equipeStats = useMemo(() => {
+    const open: Record<string, number> = {}
+    const vencidos: Record<string, number> = {}
+    for (const t of tickets) {
+      if (['rascunho','finalizado','cancelado'].includes(t.status)) continue
+      const key = resolveEquipe(t) || SEM_EQUIPE
+      open[key] = (open[key] ?? 0) + 1
+      if (t.sla_breached) vencidos[key] = (vencidos[key] ?? 0) + 1
+    }
+    return { open, vencidos }
+  }, [tickets, equipeByTicket])
+
+  // Chips: todas as equipes ativas (zero aparece esmaecida) + "Sem equipe" quando houver
+  const equipeChips = useMemo(() => {
+    const list = equipes.map(eq => ({ key: eq.id, label: eq.label }))
+    if ((equipeStats.open[SEM_EQUIPE] ?? 0) > 0) list.push({ key: SEM_EQUIPE, label: 'Sem equipe' })
+    return list
+  }, [equipes, equipeStats])
 
   const activeSorted = useMemo(() => [...active].sort((a, b) => {
     const ua = getSlaUrgency(a)
@@ -185,6 +211,39 @@ export default function AtendimentosPage() {
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Atendimentos</h1>
           <p className="text-xs text-gray-400 mt-0.5">{activeSorted.length} em aberto · {closed.length} concluidos</p>
+          {equipeChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {equipeChips.map(chip => {
+                const count = equipeStats.open[chip.key] ?? 0
+                const venc  = equipeStats.vencidos[chip.key] ?? 0
+                const isActive = equipe === chip.key
+                return (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => setEquipe(isActive ? '' : chip.key)}
+                    aria-pressed={isActive}
+                    title={`${chip.label}: ${count} em aberto${venc ? ` · ${venc} com SLA vencido` : ''}`}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors',
+                      isActive
+                        ? 'bg-vg-brand-500 border-vg-brand-500 text-white font-semibold'
+                        : 'bg-vg-surface border-vg-border-field/40 text-vg-ink-secondary hover:border-vg-brand-400',
+                      count === 0 && !isActive && 'opacity-40',
+                    )}
+                  >
+                    <span>{chip.label}</span>
+                    <span className={cn('font-semibold', !isActive && 'text-vg-ink')}>{count}</span>
+                    {venc > 0 && (
+                      <span className="inline-flex items-center gap-0.5 px-1 rounded bg-vg-danger-bg text-vg-danger-fg font-semibold">
+                        <AlertTriangle size={10} />{venc}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
         <Link href="/atendimentos/novo" className="btn-primary">
           <Plus size={15} /> Novo atendimento
@@ -264,6 +323,7 @@ export default function AtendimentosPage() {
         <select className="select w-44" value={equipe} onChange={e => setEquipe(e.target.value)} disabled={equipesLoading}>
           <option value="">Todas as equipes</option>
           {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+          <option value={SEM_EQUIPE}>Sem equipe</option>
         </select>
       </div>
 
