@@ -95,6 +95,9 @@ export default function AtendimentosPage() {
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
   // Equipe responsável por ticket (tickets.equipe_id) — a view pode não expor a coluna.
   const [equipeByTicket, setEquipeByTicket] = useState<Record<string, string | null>>({})
+  // Subtipo por ticket (tickets.subtipo_id) + nomes dos subtipos (id → nome)
+  const [subtipoByTicket, setSubtipoByTicket] = useState<Record<string, string | null>>({})
+  const [subtipoNames, setSubtipoNames] = useState<Record<string, string>>({})
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
   const [status, setStatus]         = useState('')
@@ -105,15 +108,27 @@ export default function AtendimentosPage() {
   useEffect(() => {
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
-    supabase.from('tickets').select('id, equipe_id').limit(5000)
+    supabase.from('tickets').select('id, equipe_id, subtipo_id').limit(5000)
       .then(({ data }) => {
-        const map: Record<string, string | null> = {}
-        for (const r of (data as any[]) ?? []) map[r.id] = r.equipe_id ?? null
-        setEquipeByTicket(map)
+        const eqMap: Record<string, string | null> = {}
+        const subMap: Record<string, string | null> = {}
+        for (const r of (data as any[]) ?? []) { eqMap[r.id] = r.equipe_id ?? null; subMap[r.id] = r.subtipo_id ?? null }
+        setEquipeByTicket(eqMap)
+        setSubtipoByTicket(subMap)
+      })
+    supabase.from('ticket_subtipos').select('id, nome').limit(5000)
+      .then(({ data }) => {
+        const map: Record<string, string> = {}
+        for (const r of (data as any[]) ?? []) map[r.id] = r.nome
+        setSubtipoNames(map)
       })
   }, [])
 
   const resolveEquipe = (t: any): string => (t.equipe_id ?? equipeByTicket[t.id] ?? '') || ''
+  const resolveSubtipo = (t: any): string => {
+    const sid = (t.subtipo_id ?? subtipoByTicket[t.id] ?? '') || ''
+    return sid ? (subtipoNames[sid] ?? '') : ''
+  }
 
   useEffect(() => {
     async function load() {
@@ -195,6 +210,9 @@ export default function AtendimentosPage() {
           {semCadastro && <SemCadastroBadge />}
         </div>
         <div className="text-xs text-gray-400 truncate">{ticket.type_name ?? ticket.type ?? '—'}</div>
+        {resolveSubtipo(ticket) && (
+          <div className="text-[11px] text-gray-400 truncate">↳ {resolveSubtipo(ticket)}</div>
+        )}
       </div>
     )
   }
@@ -402,6 +420,9 @@ export default function AtendimentosPage() {
                     {semCadastro && <SemCadastroBadge />}
                   </div>
                   <div className="text-xs text-gray-300 truncate">{getTypeName(ticket)}</div>
+                  {resolveSubtipo(ticket) && (
+                    <div className="text-[11px] text-gray-300 truncate">↳ {resolveSubtipo(ticket)}</div>
+                  )}
                 </div>
                 <span className="text-xs text-gray-400 self-center">{ticket.attendant_name ?? '—'}</span>
                 <span className="text-xs text-gray-400 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
