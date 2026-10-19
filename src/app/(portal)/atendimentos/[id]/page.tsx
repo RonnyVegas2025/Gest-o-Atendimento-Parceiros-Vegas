@@ -493,6 +493,7 @@ export default function TicketDetailPage() {
                   <div><div className="text-xs text-gray-400 mb-0.5">Departamento</div><div className="text-sm font-medium text-gray-900">{currentDeptLabel}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Equipe responsável</div><div className="text-sm font-medium text-gray-900">{ticketEquipeId ? (equipeLabels[ticketEquipeId] ?? '—') : '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Atendente</div><div className="text-sm font-medium text-gray-900">{(ticket as any).attendant_name ?? '—'}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Aberto por</div><div className="text-sm font-medium text-gray-900">{(ticket as any).created_by_name ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? (ticket as any).parceiro ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Prioridade</div><div className="text-sm font-medium text-gray-900">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</div></div>
                   {(ticket as any).produto_nome && (
