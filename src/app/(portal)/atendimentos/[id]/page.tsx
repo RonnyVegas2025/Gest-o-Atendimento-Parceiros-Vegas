@@ -9,6 +9,7 @@ import { ArrowLeft, Clock, Building2, Send, CheckCircle2, XCircle, AlertTriangle
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import Link from 'next/link'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 
 const PRODUTOS_OPTIONS = ['Alimentação','Vegas Plus','Vegas Day','Aux. Combustível','Combustível Frota','Farmácia','Cartão Natal','Plus Bank','Plus Híbrido','Vegas Benefícios','Alimentação Híbrido']
 
@@ -218,6 +219,7 @@ export default function TicketDetailPage() {
   const id = params.id as string
   const supabase = createClient()
   const { departments: DEPARTMENTS, loading: deptLoading } = useDepartments()
+  const { equipes, equipeLabels, loading: equipesLoading } = useEquipes()
 
   const [ticket, setTicket] = useState<TicketWithDetails | null>(null)
   const [history, setHistory] = useState<TicketHistory[]>([])
@@ -234,8 +236,11 @@ export default function TicketDetailPage() {
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({
     company_name: '', requester_name: '', employee_name: '',
-    attendant_id: '', department: '', priority: '', type_name: '',
+    attendant_id: '', department: '', priority: '', type_name: '', equipe_id: '',
   })
+  // Equipe responsável atual (tickets.equipe_id) — lida direto da tabela, pois a
+  // view tickets_with_details pode não expor a coluna nova.
+  const [ticketEquipeId, setTicketEquipeId] = useState<string>('')
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
   const [companies, setCompanies] = useState<any[]>([])
   const [companySearch, setCompanySearch] = useState('')
@@ -279,12 +284,15 @@ export default function TicketDetailPage() {
   }, [companySearch, companies])
 
   async function fetchData() {
-    const [{ data: t }, { data: h }] = await Promise.all([
+    const [{ data: t }, { data: h }, { data: tk }] = await Promise.all([
       supabase.from('tickets_with_details').select('*').eq('id', id).single(),
       supabase.from('ticket_history').select('*, user:user_id(full_name)').eq('ticket_id', id).order('created_at', { ascending: true }),
+      supabase.from('tickets').select('equipe_id').eq('id', id).maybeSingle(),
     ])
     setTicket(t as TicketWithDetails)
     setHistory((h as TicketHistory[]) ?? [])
+    const equipeId = (tk as any)?.equipe_id ?? ''
+    setTicketEquipeId(equipeId)
     setLoading(false)
     if (t) {
       setActionDept((t as any).department ?? 'comercial')
@@ -296,6 +304,7 @@ export default function TicketDetailPage() {
         department: (t as any).department ?? 'comercial',
         priority: (t as any).priority ?? 'media',
         type_name: (t as any).type_name ?? (t as any).type ?? '',
+        equipe_id: equipeId,
       })
     }
   }
@@ -347,15 +356,28 @@ export default function TicketDetailPage() {
 
   async function handleSaveEdit() {
     setSavingEdit(true)
+    const novaEquipe = editForm.equipe_id || null
+    const equipeMudou = (ticketEquipeId || '') !== (novaEquipe || '')
     const updates: Record<string, any> = {
       requester_name: editForm.requester_name, employee_name: editForm.employee_name || null,
       attendant_id: editForm.attendant_id || null, department: editForm.department,
       priority: editForm.priority, type_name: editForm.type_name || null,
+      equipe_id: novaEquipe,
     }
     if (selectedCompany) { updates.company_id = selectedCompany.id; updates.company_name_free = null }
     else if (companySearch.trim()) { updates.company_name_free = companySearch.trim(); updates.company_id = null }
     await supabase.from('tickets').update(updates).eq('id', id)
     await supabase.from('ticket_history').insert({ ticket_id: id, action: 'Informacoes do atendimento editadas', user_id: currentUserId })
+    // Mudança de equipe entra na timeline como evento próprio (de → para).
+    if (equipeMudou) {
+      const de = ticketEquipeId ? (equipeLabels[ticketEquipeId] ?? 'equipe anterior') : 'sem equipe'
+      const para = novaEquipe ? (equipeLabels[novaEquipe] ?? 'nova equipe') : 'sem equipe'
+      await supabase.from('ticket_history').insert({
+        ticket_id: id,
+        action: `Equipe responsável alterada: ${de} → ${para}`,
+        user_id: currentUserId,
+      })
+    }
     setSavingEdit(false); setEditing(false); setSelectedCompany(null); setCompanySearch(''); fetchData()
   }
 
@@ -469,7 +491,9 @@ export default function TicketDetailPage() {
                   <div><div className="text-xs text-gray-400 mb-0.5">Colaborador</div><div className="text-sm font-medium text-gray-900">{ticket.employee_name ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Tipo</div><div className="text-sm font-medium text-gray-900">{typeName}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Departamento</div><div className="text-sm font-medium text-gray-900">{currentDeptLabel}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Equipe responsável</div><div className="text-sm font-medium text-gray-900">{ticketEquipeId ? (equipeLabels[ticketEquipeId] ?? '—') : '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Atendente</div><div className="text-sm font-medium text-gray-900">{(ticket as any).attendant_name ?? '—'}</div></div>
+                  <div><div className="text-xs text-gray-400 mb-0.5">Aberto por</div><div className="text-sm font-medium text-gray-900">{(ticket as any).created_by_name ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Parceiro</div><div className="text-sm font-medium text-gray-900">{ticket.partner_name ?? (ticket as any).parceiro ?? '—'}</div></div>
                   <div><div className="text-xs text-gray-400 mb-0.5">Prioridade</div><div className="text-sm font-medium text-gray-900">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</div></div>
                   {(ticket as any).produto_nome && (
@@ -538,6 +562,13 @@ export default function TicketDetailPage() {
                     <label className="form-label">Departamento</label>
                     <select className="select" value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
                       {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Equipe responsável</label>
+                    <select className="select" value={editForm.equipe_id} onChange={e => setEditForm(f => ({ ...f, equipe_id: e.target.value }))} disabled={equipesLoading}>
+                      <option value="">Sem equipe definida</option>
+                      {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
                     </select>
                   </div>
                   <div className="form-group">

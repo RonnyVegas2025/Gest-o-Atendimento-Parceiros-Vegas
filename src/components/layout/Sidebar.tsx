@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { LayoutDashboard, Building2, Ticket, Plus, Users, BarChart3, Handshake, Tags, AlertTriangle, Bug, CircleDollarSign } from 'lucide-react'
+import { LayoutDashboard, Building2, Ticket, Plus, Users, BarChart3, Handshake, Tags, AlertTriangle, Bug, CircleDollarSign, UsersRound } from 'lucide-react'
 
 const navItems = [
   { label: 'Visao geral', items: [
@@ -22,6 +22,7 @@ const navItems = [
     { href: '/relatorios', label: 'Relatorios',         icon: BarChart3 },
     { href: '/tipos',      label: 'Tipos Solicitacao',  icon: Tags },
     { href: '/tipos-erro', label: 'Tipos de Erro',      icon: Bug },
+    { href: '/equipes',    label: 'Equipes',            icon: UsersRound },
     { href: '/usuarios',   label: 'Usuarios',           icon: Users },
   ]},
 ]

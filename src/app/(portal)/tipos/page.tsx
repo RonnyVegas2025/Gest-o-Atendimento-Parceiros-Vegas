@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Check, Clock, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 
 interface TicketType {
   id: string
@@ -12,6 +13,7 @@ interface TicketType {
   category: string | null
   subcategory: string | null
   department: string | null
+  equipe_id: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -36,13 +38,14 @@ const SLA_OPTIONS = [
 ]
 
 const EMPTY = {
-  name: '', description: '', category: '', subcategory: '', department: '',
+  name: '', description: '', category: '', subcategory: '', department: '', equipe_id: '',
   priority: 'media' as 'baixa' | 'media' | 'alta', sla_hours: 8
 }
 
 export default function TiposPage() {
   const supabase = createClient()
-  const { departments, loading: deptLoading } = useDepartments()
+  const { departments, deptLabels, loading: deptLoading } = useDepartments()
+  const { equipes, equipeLabels, loading: equipesLoading } = useEquipes()
   const [types, setTypes]         = useState<TicketType[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -53,6 +56,8 @@ export default function TiposPage() {
   const [expanded, setExpanded]   = useState<Record<string, boolean>>({})
   const [categoryInput, setCategoryInput] = useState('')
   const [showCatDropdown, setShowCatDropdown] = useState(false)
+  // Filtro de classificação pendente: '' (todos) | 'sem_equipe' | 'sem_departamento'
+  const [classFilter, setClassFilter] = useState('')
 
   useEffect(() => { fetchTypes() }, [])
 
@@ -63,16 +68,32 @@ export default function TiposPage() {
     setLoading(false)
   }
 
+  // Ativos + filtro de classificação (o que falta preencher)
+  const visibleActive = useMemo(() => {
+    return types.filter(t => t.active).filter(t => {
+      if (classFilter === 'sem_equipe') return !t.equipe_id
+      if (classFilter === 'sem_departamento') return !t.department
+      return true
+    })
+  }, [types, classFilter])
+
+  // Contadores (recalculados conforme o filtro, sobre o conjunto visível)
+  const counts = useMemo(() => ({
+    total: visibleActive.length,
+    semEquipe: visibleActive.filter(t => !t.equipe_id).length,
+    semDept: visibleActive.filter(t => !t.department).length,
+  }), [visibleActive])
+
   // Agrupa por categoria
   const grouped = useMemo(() => {
     const map: Record<string, TicketType[]> = {}
-    types.filter(t => t.active).forEach(t => {
+    visibleActive.forEach(t => {
       const cat = t.category || 'Sem categoria'
       if (!map[cat]) map[cat] = []
       map[cat].push(t)
     })
     return map
-  }, [types])
+  }, [visibleActive])
 
   const categories = useMemo(() => Array.from(new Set(types.map(t => t.category).filter(Boolean))), [types])
 
@@ -89,6 +110,7 @@ export default function TiposPage() {
       name: t.name, description: t.description ?? '',
       category: t.category ?? '', subcategory: t.subcategory ?? '',
       department: t.department ?? '',
+      equipe_id: t.equipe_id ?? '',
       priority: t.priority, sla_hours: t.sla_hours
     })
     setCategoryInput(t.category ?? '')
@@ -107,6 +129,7 @@ export default function TiposPage() {
       category:    categoryInput.trim() || null,
       subcategory: form.subcategory.trim() || null,
       department:  form.department || null,
+      equipe_id:   form.equipe_id || null,
       priority:    form.priority,
       sla_hours:   form.sla_hours,
       updated_at:  new Date().toISOString(),
@@ -139,12 +162,23 @@ export default function TiposPage() {
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Tipos de Solicitacao</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Organize por categoria e subcategoria · SLA e prioridade automaticos</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {counts.total} tipo{counts.total !== 1 ? 's' : ''}
+            {' · '}<span className={counts.semEquipe ? 'text-amber-600' : ''}>{counts.semEquipe} sem equipe</span>
+            {' · '}<span className={counts.semDept ? 'text-amber-600' : ''}>{counts.semDept} sem departamento</span>
+          </p>
         </div>
-        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo</button>
+        <div className="flex items-center gap-2">
+          <select className="select w-48" value={classFilter} onChange={e => setClassFilter(e.target.value)}>
+            <option value="">Todos os tipos</option>
+            <option value="sem_equipe">Sem equipe</option>
+            <option value="sem_departamento">Sem departamento</option>
+          </select>
+          <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo</button>
+        </div>
       </div>
 
       <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 rounded-xl text-xs text-blue-700 border border-blue-100">
@@ -181,11 +215,11 @@ export default function TiposPage() {
 
                   {isOpen && (
                     <>
-                      <div className="table-header grid" style={{ gridTemplateColumns: '1fr 120px 180px 100px 100px 140px' }}>
-                        <span>Nome / Subcategoria</span><span>SLA</span><span>Descricao</span><span>Prioridade</span><span>Status</span><span>Acoes</span>
+                      <div className="table-header grid" style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
+                        <span>Nome / Subcategoria</span><span>Departamento</span><span>Equipe</span><span>SLA</span><span>Descricao</span><span>Prioridade</span><span>Status</span><span>Acoes</span>
                       </div>
                       {items.map(type => (
-                        <div key={type.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 120px 180px 100px 100px 140px' }}>
+                        <div key={type.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
                           <div>
                             <div className="text-sm font-medium text-gray-900">{type.name}</div>
                             {type.subcategory && (
@@ -194,6 +228,12 @@ export default function TiposPage() {
                               </span>
                             )}
                           </div>
+                          <span className="text-xs self-center truncate">
+                            {type.department ? <span className="text-gray-600">{deptLabels[type.department] ?? type.department}</span> : <span className="text-amber-500" title="Sem departamento">—</span>}
+                          </span>
+                          <span className="text-xs self-center truncate">
+                            {type.equipe_id ? <span className="text-gray-600">{equipeLabels[type.equipe_id] ?? 'Equipe inativa'}</span> : <span className="text-amber-500" title="Sem equipe">—</span>}
+                          </span>
                           <div className="flex items-center gap-1.5 text-xs text-gray-700 self-center">
                             <Clock size={11} className="text-gray-400" />
                             {SLA_OPTIONS.find(s => s.value === type.sla_hours)?.label ?? type.sla_hours + 'h'}
@@ -299,15 +339,26 @@ export default function TiposPage() {
                 />
               </div>
 
-              {/* Departamento (opcional) — permite classificar o tipo por departamento */}
-              <div className="form-group">
-                <label className="form-label">Departamento <span className="text-gray-400 font-normal">(opcional)</span></label>
-                <select className="select" value={form.department}
-                  onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
-                  <option value="">Sem departamento (não classificado)</option>
-                  {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                </select>
-                <p className="text-xs text-gray-400 mt-1">Ao definir, este tipo passa a aparecer só para o departamento escolhido no novo atendimento.</p>
+              {/* Departamento e Equipe (opcionais) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="form-label">Departamento <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <select className="select" value={form.department}
+                    onChange={e => setForm(f => ({ ...f, department: e.target.value }))} disabled={deptLoading}>
+                    <option value="">Sem departamento</option>
+                    {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Ao definir, este tipo aparece só para o departamento no novo atendimento.</p>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Equipe responsável <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <select className="select" value={form.equipe_id}
+                    onChange={e => setForm(f => ({ ...f, equipe_id: e.target.value }))} disabled={equipesLoading}>
+                    <option value="">Sem equipe</option>
+                    {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Preenche a equipe do atendimento automaticamente ao escolher este tipo.</p>
+                </div>
               </div>
 
               {/* Nome */}

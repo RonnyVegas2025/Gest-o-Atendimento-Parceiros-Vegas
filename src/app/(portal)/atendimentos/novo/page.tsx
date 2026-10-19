@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import PasteTextarea from '@/components/ui/PasteTextarea'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 import { STATUS_LABELS } from '@/lib/constants'
 import type { TicketStatus } from '@/lib/types'
 
@@ -34,6 +35,7 @@ interface TicketType {
   category: string | null
   subcategory: string | null
   department: string | null
+  equipe_id: string | null
   priority: 'baixa' | 'media' | 'alta'
   sla_hours: number
   active: boolean
@@ -43,6 +45,7 @@ export default function NovoAtendimentoPage() {
   const supabase = createClient()
   const router = useRouter()
   const { departments: ALL_DEPARTMENTS, loading: deptLoading } = useDepartments()
+  const { equipes, loading: equipesLoading } = useEquipes()
   const [mode, setMode] = useState<'pre' | 'full'>('full')
   const [loading, setLoading] = useState(false)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -62,6 +65,7 @@ export default function NovoAtendimentoPage() {
   const [pasteImageUrls, setPasteImageUrls] = useState<string[]>([])
   const [empresaProdutos, setEmpresaProdutos] = useState<{empresa_id:string;produto_id:number|null;produto_nome:string}[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>('00000000-0000-0000-0000-000000000001')
+  const [currentUserName, setCurrentUserName] = useState<string>('')
 
   const [form, setForm] = useState({
     requester_name: '',
@@ -72,6 +76,7 @@ export default function NovoAtendimentoPage() {
     produto_nome:   '',
     type_id:        '',
     department:     '',
+    equipe_id:      '',
     priority:       'media',
     status:         'aberto',
     sla_hours:      8,
@@ -91,13 +96,15 @@ export default function NovoAtendimentoPage() {
       if (!user) return
       const { data } = await supabase
         .from('users_profile')
-        .select('id')
+        .select('id, full_name')
         .eq('email', user.email ?? '')
         .maybeSingle()
       if (data?.id) {
         setCurrentUserId(data.id)
+        setCurrentUserName((data as any).full_name ?? user.email ?? '')
       } else {
         setCurrentUserId('00000000-0000-0000-0000-000000000001')
+        setCurrentUserName(user.email ?? '')
       }
     })
 
@@ -183,22 +190,26 @@ export default function NovoAtendimentoPage() {
     setForm(p => ({ ...p, [field]: value }))
   }
 
-  // Tipos filtrados pelo departamento: os do departamento selecionado + os ainda
-  // não classificados (department IS NULL). Tipos de outros departamentos ficam ocultos.
-  const filteredTypes = useMemo(() => {
-    if (!form.department) return []
-    return ticketTypes.filter(t => t.department === form.department || !t.department)
-  }, [ticketTypes, form.department])
-
-  // Ao trocar de departamento: se o tipo já selecionado não pertence mais à lista
-  // filtrada, limpa a seleção do tipo e o SLA/prioridade derivados dele.
-  useEffect(() => {
-    if (!form.type_id) return
-    if (!filteredTypes.some(t => t.id === form.type_id)) {
-      setForm(f => ({ ...f, type_id: '', priority: 'media', sla_hours: 8 }))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.department])
+  // Grupos de tipos para o select: TODOS os tipos ativos, agrupados pelo label
+  // do departamento (e "Sem departamento"), ordenados alfabeticamente dentro de
+  // cada grupo. A ordem dos grupos põe o departamento selecionado no topo e o
+  // grupo "Sem departamento" por último — nada fica escondido.
+  const typeGroups = useMemo(() => {
+    const deptLabelOf = (val: string) => ALL_DEPARTMENTS.find(d => d.value === val)?.label ?? val
+    const byDept: Record<string, TicketType[]> = {}
+    ticketTypes.forEach(t => { const k = t.department || ''; (byDept[k] ||= []).push(t) })
+    const entries = Object.entries(byDept).map(([deptVal, items]) => ({
+      deptVal,
+      label: deptVal ? deptLabelOf(deptVal) : 'Sem departamento',
+      items: [...items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    }))
+    const rank = (e: { deptVal: string }) => (form.department && e.deptVal === form.department ? 0 : e.deptVal === '' ? 2 : 1)
+    entries.sort((a, b) => {
+      const ra = rank(a), rb = rank(b)
+      return ra !== rb ? ra - rb : a.label.localeCompare(b.label, 'pt-BR')
+    })
+    return entries
+  }, [ticketTypes, form.department, ALL_DEPARTMENTS])
 
   function handleTypeChange(typeId: string) {
     const type = ticketTypes.find(t => t.id === typeId)
@@ -206,9 +217,15 @@ export default function NovoAtendimentoPage() {
       setForm(f => ({
         ...f,
         type_id:   type.id,
+        // Preenche departamento e equipe a partir do tipo (ambos editáveis).
+        // Se o tipo não tem departamento, mantém o que já estiver escolhido.
+        department: type.department ?? f.department,
+        equipe_id:  type.equipe_id ?? '',
         priority:  type.priority,
         sla_hours: type.sla_hours,
       }))
+    } else {
+      set('type_id', typeId)
     }
   }
 
@@ -244,6 +261,7 @@ export default function NovoAtendimentoPage() {
       produto_nome:       form.produto_nome || null,
       description:        form.description,
       department:         form.department,
+      equipe_id:          form.equipe_id || null,
       priority:           form.priority,
       status,
       protocol:           '',
@@ -412,6 +430,11 @@ export default function NovoAtendimentoPage() {
                   <input className="input" placeholder="Nome do funcionario" value={form.employee_name} onChange={e => set('employee_name', e.target.value)} />
                 </div>
                 <div className="form-group col-span-2">
+                  <label className="form-label">Aberto por</label>
+                  <input className="input bg-gray-50 text-gray-600" value={currentUserName || 'Carregando...'} readOnly
+                    title="Usuário logado — registrado automaticamente (created_by)" />
+                </div>
+                <div className="form-group col-span-2">
                   <label className="form-label">Atendente responsavel</label>
                   <select className="select" value={form.attendant_id} onChange={e => set('attendant_id', e.target.value)}>
                     <option value="">Selecione o atendente...</option>
@@ -454,7 +477,7 @@ export default function NovoAtendimentoPage() {
             <div className="card-header"><span className="card-title">Classificacao</span></div>
             <div className="card-body space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="form-group col-span-2">
+                <div className="form-group">
                   <label className="form-label">Departamento *</label>
                   <select className="select" value={form.department} onChange={e => set('department', e.target.value)} disabled={deptLoading} required>
                     <option value="">Selecione o departamento...</option>
@@ -462,27 +485,27 @@ export default function NovoAtendimentoPage() {
                   </select>
                 </div>
 
+                <div className="form-group">
+                  <label className="form-label">Equipe responsável <span className="text-gray-400 font-normal">(automático pelo tipo)</span></label>
+                  <select className="select" value={form.equipe_id} onChange={e => set('equipe_id', e.target.value)} disabled={equipesLoading}>
+                    <option value="">Sem equipe definida</option>
+                    {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+                  </select>
+                </div>
+
                 <div className="form-group col-span-2">
                   <label className="form-label">Tipo de solicitacao *</label>
-                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} disabled={!form.department} required>
-                    <option value="">{!form.department ? 'Selecione o departamento primeiro' : 'Selecione o tipo...'}</option>
-                    {(() => {
-                      const grouped: Record<string, TicketType[]> = {}
-                      filteredTypes.forEach(t => {
-                        const cat = t.category || 'Geral'
-                        if (!grouped[cat]) grouped[cat] = []
-                        grouped[cat].push(t)
-                      })
-                      return Object.entries(grouped).map(([cat, items]) => (
-                        <optgroup key={cat} label={cat}>
-                          {items.map(t => (
-                            <option key={t.id} value={t.id}>
-                              {t.subcategory ? `${t.subcategory} › ` : ''}{t.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))
-                    })()}
+                  <select className="select" value={form.type_id} onChange={e => handleTypeChange(e.target.value)} required>
+                    <option value="">Selecione o tipo...</option>
+                    {typeGroups.map(g => (
+                      <optgroup key={g.deptVal || '__none__'} label={g.label}>
+                        {g.items.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.subcategory ? `${t.subcategory} › ` : ''}{t.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                   {selectedType && (
                     <div className="flex items-center gap-3 mt-2">

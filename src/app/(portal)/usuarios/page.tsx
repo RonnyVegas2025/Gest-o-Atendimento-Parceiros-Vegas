@@ -4,6 +4,11 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Pencil, Check, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
+
+// E-mail normalizado (lower + trim) — attendants e users_profile são as mesmas
+// pessoas, ligadas por e-mail (os ids não casam entre as tabelas).
+const normEmail = (s: string | null | undefined) => (s ?? '').trim().toLowerCase()
 
 interface Attendant {
   id: string
@@ -21,14 +26,17 @@ const ROLE_CONFIG = {
   atendimento:    { label: 'Atendimento',     color: 'bg-gray-100 text-gray-600 border border-gray-200' },
 }
 
-const EMPTY: { full_name: string; email: string; phone: string; role: 'gestor_master' | 'supervisor_adm' | 'atendimento'; department: string } = {
-  full_name: '', email: '', phone: '', role: 'atendimento', department: 'comercial'
+const EMPTY: { full_name: string; email: string; phone: string; role: 'gestor_master' | 'supervisor_adm' | 'atendimento'; department: string; equipe_id: string } = {
+  full_name: '', email: '', phone: '', role: 'atendimento', department: 'comercial', equipe_id: ''
 }
 
 export default function UsuariosPage() {
   const supabase = createClient()
   const { departments, deptLabels: DEPT_LABELS, loading: deptLoading } = useDepartments()
+  const { equipes, equipeLabels, loading: equipesLoading } = useEquipes()
   const [attendants, setAttendants] = useState<Attendant[]>([])
+  // users_profile (mesmas pessoas, por e-mail): mapa e-mail normalizado -> { id, equipe_id }
+  const [profilesByEmail, setProfilesByEmail] = useState<Record<string, { id: string; equipe_id: string | null }>>({})
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -40,13 +48,22 @@ export default function UsuariosPage() {
 
   async function fetchAttendants() {
     setLoading(true)
-    const { data } = await supabase
-      .from('attendants')
-      .select('*')
-      .order('full_name')
-    setAttendants((data as Attendant[]) ?? [])
+    const [{ data: att }, { data: profs }] = await Promise.all([
+      supabase.from('attendants').select('*').order('full_name'),
+      supabase.from('users_profile').select('id, email, equipe_id'),
+    ])
+    setAttendants((att as Attendant[]) ?? [])
+    const map: Record<string, { id: string; equipe_id: string | null }> = {}
+    for (const p of (profs as any[]) ?? []) {
+      const k = normEmail(p.email)
+      if (k) map[k] = { id: p.id, equipe_id: p.equipe_id ?? null }
+    }
+    setProfilesByEmail(map)
     setLoading(false)
   }
+
+  // Equipe (users_profile.equipe_id) do atendente, resolvida pelo e-mail.
+  const equipeDoAtendente = (a: Attendant): string | null => profilesByEmail[normEmail(a.email)]?.equipe_id ?? null
 
   function openNew() { setForm(EMPTY); setEditingId(null); setError(''); setShowModal(true) }
 
@@ -57,6 +74,7 @@ export default function UsuariosPage() {
       phone:      a.phone ?? '',
       role:       a.role,
       department: a.department ?? 'comercial',
+      equipe_id:  equipeDoAtendente(a) ?? '',
     })
     setEditingId(a.id); setError(''); setShowModal(true)
   }
@@ -76,8 +94,15 @@ export default function UsuariosPage() {
     const { error: err } = editingId
       ? await supabase.from('attendants').update(payload).eq('id', editingId)
       : await supabase.from('attendants').insert(payload)
+    if (err) { setSaving(false); setError(err.message); return }
+
+    // Equipe mora em users_profile. Atualiza o perfil correspondente (mesmo
+    // e-mail) quando existir — os ids de attendants e users_profile não casam.
+    const perfil = profilesByEmail[normEmail(form.email)]
+    if (perfil) {
+      await supabase.from('users_profile').update({ equipe_id: form.equipe_id || null }).eq('id', perfil.id)
+    }
     setSaving(false)
-    if (err) { setError(err.message); return }
     setShowModal(false); fetchAttendants()
   }
 
@@ -108,15 +133,15 @@ export default function UsuariosPage() {
               <span className="card-title">Equipe ativa</span>
               <span className="text-xs text-gray-400">{activeList.length} pessoas</span>
             </div>
-            <div className="table-header grid" style={{ gridTemplateColumns: '1fr 160px 140px 120px 100px' }}>
-              <span>Nome</span><span>Departamento</span><span>Funcao</span><span>Contato</span><span>Acoes</span>
+            <div className="table-header grid" style={{ gridTemplateColumns: '1fr 150px 150px 130px 110px 90px' }}>
+              <span>Nome</span><span>Departamento</span><span>Equipe</span><span>Funcao</span><span>Contato</span><span>Acoes</span>
             </div>
             {activeList.length === 0 ? (
               <div className="py-12 text-center text-sm text-gray-400">
                 Nenhum atendente cadastrado — clique em "Novo atendente"
               </div>
             ) : activeList.map(a => (
-              <div key={a.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 160px 140px 120px 100px' }}>
+              <div key={a.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 150px 150px 130px 110px 90px' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-[#E6F1FB] flex items-center justify-center text-[#185FA5] text-xs font-semibold flex-shrink-0">
                     {a.full_name.split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()}
@@ -126,10 +151,11 @@ export default function UsuariosPage() {
                     {a.email && <div className="text-xs text-gray-400">{a.email}</div>}
                   </div>
                 </div>
-                <span className="text-sm text-gray-600">{DEPT_LABELS[a.department ?? ''] ?? a.department ?? '—'}</span>
-                <span className={cn('badge', ROLE_CONFIG[a.role].color)}>{ROLE_CONFIG[a.role].label}</span>
-                <span className="text-xs text-gray-500">{a.phone ?? '—'}</span>
-                <div className="flex items-center gap-1">
+                <span className="text-sm text-gray-600 self-center">{DEPT_LABELS[a.department ?? ''] ?? a.department ?? '—'}</span>
+                <span className="text-sm text-gray-600 self-center truncate">{equipeLabels[equipeDoAtendente(a) ?? ''] ?? '—'}</span>
+                <span className={cn('badge self-center', ROLE_CONFIG[a.role].color)}>{ROLE_CONFIG[a.role].label}</span>
+                <span className="text-xs text-gray-500 self-center">{a.phone ?? '—'}</span>
+                <div className="flex items-center gap-1 self-center">
                   <button onClick={() => openEdit(a)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700" title="Editar">
                     <Pencil size={13} />
                   </button>
@@ -203,6 +229,16 @@ export default function UsuariosPage() {
                     {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                   </select>
                 </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Equipe</label>
+                <select className="select" value={form.equipe_id} onChange={e => setForm(f => ({ ...f, equipe_id: e.target.value }))} disabled={equipesLoading}>
+                  <option value="">Sem equipe</option>
+                  {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+                </select>
+                {form.email && !profilesByEmail[normEmail(form.email)] && (
+                  <p className="text-xs text-amber-600 mt-1">Sem perfil (users_profile) com este e-mail — a equipe não será salva até o perfil existir.</p>
+                )}
               </div>
               {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">{error}</p>}
               <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">

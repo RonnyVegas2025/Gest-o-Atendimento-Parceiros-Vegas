@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { PriorityBadge } from '@/components/tickets/StatusBadge'
 import { formatDateShort } from '@/lib/utils'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useEquipes } from '@/hooks/useEquipes'
 import Link from 'next/link'
 import { Plus, Zap, AlertTriangle, Clock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -86,18 +87,30 @@ function SemCadastroBadge() {
 export default function AtendimentosPage() {
   const supabase = createClient()
   const { departments, deptLabels: DEPARTMENT_LABELS, loading: deptLoading } = useDepartments()
+  const { equipes, equipeLabels, loading: equipesLoading } = useEquipes()
   const [tickets, setTickets]       = useState<any[]>([])
   const [attendants, setAttendants] = useState<{id:string;full_name:string}[]>([])
+  // Equipe responsável por ticket (tickets.equipe_id) — a view pode não expor a coluna.
+  const [equipeByTicket, setEquipeByTicket] = useState<Record<string, string | null>>({})
   const [loading, setLoading]       = useState(true)
   const [search, setSearch]         = useState('')
   const [status, setStatus]         = useState('')
   const [department, setDepartment] = useState('')
   const [attendant, setAttendant]   = useState('')
+  const [equipe, setEquipe]         = useState('')
 
   useEffect(() => {
     supabase.from('attendants').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => setAttendants((data as any[]) ?? []))
+    supabase.from('tickets').select('id, equipe_id').limit(5000)
+      .then(({ data }) => {
+        const map: Record<string, string | null> = {}
+        for (const r of (data as any[]) ?? []) map[r.id] = r.equipe_id ?? null
+        setEquipeByTicket(map)
+      })
   }, [])
+
+  const resolveEquipe = (t: any): string => (t.equipe_id ?? equipeByTicket[t.id] ?? '') || ''
 
   useEffect(() => {
     async function load() {
@@ -122,9 +135,10 @@ export default function AtendimentosPage() {
     load()
   }, [status, department, search, attendant])
 
-  const drafts = tickets.filter(t => t.status === 'rascunho')
-  const active = tickets.filter(t => !['rascunho','finalizado','cancelado'].includes(t.status))
-  const closed = tickets.filter(t => ['finalizado','cancelado'].includes(t.status))
+  const ticketsVis = equipe ? tickets.filter(t => resolveEquipe(t) === equipe) : tickets
+  const drafts = ticketsVis.filter(t => t.status === 'rascunho')
+  const active = ticketsVis.filter(t => !['rascunho','finalizado','cancelado'].includes(t.status))
+  const closed = ticketsVis.filter(t => ['finalizado','cancelado'].includes(t.status))
 
   const activeSorted = useMemo(() => [...active].sort((a, b) => {
     const ua = getSlaUrgency(a)
@@ -160,7 +174,7 @@ export default function AtendimentosPage() {
   }
 
   const getTypeName = (t: any) => t.type_name ?? t.type ?? '—'
-  const COLS = '130px 1fr 140px 110px 110px 100px 130px 90px'
+  const COLS = '120px 1fr 130px 110px 120px 95px 90px 100px 80px'
 
   // ✅ Conta quantos tickets têm empresa sem cadastro (para alerta no topo)
   const semCadastroCount = tickets.filter(t => !t.company_id && !!t.company_name_free).length
@@ -247,6 +261,10 @@ export default function AtendimentosPage() {
           <option value="">Todos os atend.</option>
           {attendants.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
         </select>
+        <select className="select w-44" value={equipe} onChange={e => setEquipe(e.target.value)} disabled={equipesLoading}>
+          <option value="">Todas as equipes</option>
+          {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+        </select>
       </div>
 
       {/* Legenda SLA */}
@@ -264,6 +282,7 @@ export default function AtendimentosPage() {
           <span>Empresa / Tipo</span>
           <span>Atendente</span>
           <span>Departamento</span>
+          <span>Equipe</span>
           <span>SLA restante</span>
           <span>Prioridade</span>
           <span>Status</span>
@@ -285,6 +304,7 @@ export default function AtendimentosPage() {
             <CompanyCell ticket={ticket} />
             <span className="text-xs text-gray-600 truncate self-center">{ticket.attendant_name ?? '—'}</span>
             <span className="text-xs text-gray-500 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
+            <span className="text-xs text-gray-500 self-center truncate">{equipeLabels[resolveEquipe(ticket)] ?? '—'}</span>
             <div className="self-center w-full pr-2">
               <SlaBar ticket={ticket} />
             </div>
@@ -305,7 +325,7 @@ export default function AtendimentosPage() {
           </div>
           <div className="table-header grid text-xs" style={{ gridTemplateColumns: COLS }}>
             <span>Protocolo</span><span>Empresa / Tipo</span><span>Atendente</span>
-            <span>Departamento</span><span>Tempo total</span><span>Prioridade</span>
+            <span>Departamento</span><span>Equipe</span><span>Tempo total</span><span>Prioridade</span>
             <span>Status</span><span>Encerrado</span>
           </div>
           {closed.map(ticket => {
@@ -325,6 +345,7 @@ export default function AtendimentosPage() {
                 </div>
                 <span className="text-xs text-gray-400 self-center">{ticket.attendant_name ?? '—'}</span>
                 <span className="text-xs text-gray-400 self-center">{(DEPARTMENT_LABELS as any)[ticket.department] ?? ticket.department}</span>
+                <span className="text-xs text-gray-400 self-center truncate">{equipeLabels[resolveEquipe(ticket)] ?? '—'}</span>
                 <span className="text-xs text-gray-400 self-center">
                   {ticket.open_seconds > 0
                     ? ticket.open_seconds >= 3600
