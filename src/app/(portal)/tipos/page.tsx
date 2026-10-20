@@ -240,6 +240,13 @@ const EMPTY = {
   priority: 'media' as 'baixa' | 'media' | 'alta', sla_hours: 8
 }
 
+// Normaliza texto para busca: sem acento e case-insensitive.
+const normalize = (s: string | null | undefined) =>
+  (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+// Sentinela para os filtros "Sem departamento" / "Sem equipe".
+const SEM = '__none__'
+
 export default function TiposPage() {
   const supabase = createClient()
   const { departments, deptLabels, loading: deptLoading } = useDepartments()
@@ -254,8 +261,13 @@ export default function TiposPage() {
   const [expanded, setExpanded]   = useState<Record<string, boolean>>({})
   const [categoryInput, setCategoryInput] = useState('')
   const [showCatDropdown, setShowCatDropdown] = useState(false)
-  // Filtro de classificação pendente: '' (todos) | 'sem_equipe' | 'sem_departamento'
-  const [classFilter, setClassFilter] = useState('')
+  // Barra de filtros combináveis
+  const [search, setSearch]           = useState('')
+  const [catFilter, setCatFilter]     = useState('')
+  const [deptFilter, setDeptFilter]   = useState('')
+  const [equipeFilter, setEquipeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'ativos' | 'inativos' | 'todos'>('ativos')
+  const [subFilter, setSubFilter]     = useState<'' | 'com' | 'sem'>('')
   // Subtipos: contagem de ativos por tipo + tipo cujo gerenciador está aberto
   const [subCounts, setSubCounts] = useState<Record<string, number>>({})
   const [subtiposType, setSubtiposType] = useState<TicketType | null>(null)
@@ -277,34 +289,48 @@ export default function TiposPage() {
     setSubCounts(map)
   }
 
-  // Ativos + filtro de classificação (o que falta preencher)
-  const visibleActive = useMemo(() => {
-    return types.filter(t => t.active).filter(t => {
-      if (classFilter === 'sem_equipe') return !t.equipe_id
-      if (classFilter === 'sem_departamento') return !t.department
+  // Aplica todos os filtros combináveis (busca, categoria, departamento,
+  // equipe, status e subtipos).
+  const visible = useMemo(() => {
+    const q = normalize(search.trim())
+    return types.filter(t => {
+      if (statusFilter === 'ativos'   && !t.active) return false
+      if (statusFilter === 'inativos' &&  t.active) return false
+      if (q && !(normalize(t.name).includes(q) || normalize(t.category).includes(q) || normalize(t.description).includes(q))) return false
+      if (catFilter && (t.category ?? '') !== catFilter) return false
+      if (deptFilter === SEM ? !!t.department : deptFilter && t.department !== deptFilter) return false
+      if (equipeFilter === SEM ? !!t.equipe_id : equipeFilter && t.equipe_id !== equipeFilter) return false
+      if (subFilter === 'com' && (subCounts[t.id] ?? 0) === 0) return false
+      if (subFilter === 'sem' && (subCounts[t.id] ?? 0) > 0)  return false
       return true
     })
-  }, [types, classFilter])
+  }, [types, search, catFilter, deptFilter, equipeFilter, statusFilter, subFilter, subCounts])
 
-  // Contadores (recalculados conforme o filtro, sobre o conjunto visível)
+  // Contadores do cabeçalho (sobre o resultado filtrado)
   const counts = useMemo(() => ({
-    total: visibleActive.length,
-    semEquipe: visibleActive.filter(t => !t.equipe_id).length,
-    semDept: visibleActive.filter(t => !t.department).length,
-  }), [visibleActive])
+    total: visible.length,
+    semEquipe: visible.filter(t => !t.equipe_id).length,
+    semDept: visible.filter(t => !t.department).length,
+  }), [visible])
 
-  // Agrupa por categoria
+  // Agrupa por categoria (mantido)
   const grouped = useMemo(() => {
     const map: Record<string, TicketType[]> = {}
-    visibleActive.forEach(t => {
+    visible.forEach(t => {
       const cat = t.category || 'Sem categoria'
       if (!map[cat]) map[cat] = []
       map[cat].push(t)
     })
     return map
-  }, [visibleActive])
+  }, [visible])
 
-  const categories = useMemo(() => Array.from(new Set(types.map(t => t.category).filter(Boolean))), [types])
+  const categories = useMemo(() => Array.from(new Set(types.map(t => t.category).filter(Boolean))) as string[], [types])
+
+  // Algum filtro ativo? (status padrão é "ativos")
+  const anyFilter = !!search || !!catFilter || !!deptFilter || !!equipeFilter || !!subFilter || statusFilter !== 'ativos'
+  function clearFilters() {
+    setSearch(''); setCatFilter(''); setDeptFilter(''); setEquipeFilter(''); setSubFilter(''); setStatusFilter('ativos')
+  }
 
   function openNew() {
     setForm(EMPTY)
@@ -367,8 +393,6 @@ export default function TiposPage() {
     setExpanded(prev => ({ ...prev, [cat]: !prev[cat] }))
   }
 
-  const inactiveTypes = types.filter(t => !t.active)
-
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -380,14 +404,42 @@ export default function TiposPage() {
             {' · '}<span className={counts.semDept ? 'text-amber-600' : ''}>{counts.semDept} sem departamento</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <select className="select w-48" value={classFilter} onChange={e => setClassFilter(e.target.value)}>
-            <option value="">Todos os tipos</option>
-            <option value="sem_equipe">Sem equipe</option>
-            <option value="sem_departamento">Sem departamento</option>
-          </select>
-          <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo</button>
-        </div>
+        <button onClick={openNew} className="btn-primary"><Plus size={15} /> Novo tipo</button>
+      </div>
+
+      {/* Barra de filtros combináveis */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <input className="input max-w-xs" placeholder="Buscar por nome, categoria ou descricao..."
+          value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="select w-44" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+          <option value="">Todas as categorias</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="select w-44" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} disabled={deptLoading}>
+          <option value="">Todos os depto.</option>
+          <option value={SEM}>Sem departamento</option>
+          {departments.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        <select className="select w-44" value={equipeFilter} onChange={e => setEquipeFilter(e.target.value)} disabled={equipesLoading}>
+          <option value="">Todas as equipes</option>
+          <option value={SEM}>Sem equipe</option>
+          {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.label}</option>)}
+        </select>
+        <select className="select w-36" value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}>
+          <option value="ativos">Ativos</option>
+          <option value="inativos">Inativos</option>
+          <option value="todos">Todos</option>
+        </select>
+        <select className="select w-40" value={subFilter} onChange={e => setSubFilter(e.target.value as any)}>
+          <option value="">Todos (subtipos)</option>
+          <option value="com">Com subtipos</option>
+          <option value="sem">Sem subtipos</option>
+        </select>
+        {anyFilter && (
+          <button onClick={clearFilters} className="btn btn-sm text-xs flex items-center gap-1">
+            <X size={13} /> Limpar filtros
+          </button>
+        )}
       </div>
 
       <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 rounded-xl text-xs text-blue-700 border border-blue-100">
@@ -400,6 +452,12 @@ export default function TiposPage() {
       ) : (
         <>
           {/* Agrupado por categoria */}
+          {Object.keys(grouped).length === 0 ? (
+            <div className="card py-12 text-center text-sm text-gray-400">
+              Nenhum tipo encontrado com os filtros atuais.
+              {anyFilter && <> <button onClick={clearFilters} className="text-[#185FA5] hover:underline">Limpar filtros</button></>}
+            </div>
+          ) : (
           <div className="space-y-3">
             {Object.entries(grouped).map(([cat, items]) => {
               const isOpen = expanded[cat] !== false // aberto por padrão
@@ -428,9 +486,9 @@ export default function TiposPage() {
                         <span>Nome / Subcategoria</span><span>Departamento</span><span>Equipe</span><span>SLA</span><span>Descricao</span><span>Prioridade</span><span>Status</span><span>Acoes</span>
                       </div>
                       {items.map(type => (
-                        <div key={type.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
+                        <div key={type.id} className={cn('table-row grid', !type.active && 'opacity-60')} style={{ gridTemplateColumns: '1fr 120px 120px 110px 150px 95px 90px 130px' }}>
                           <div>
-                            <div className="text-sm font-medium text-gray-900">{type.name}</div>
+                            <div className={cn('text-sm font-medium', type.active ? 'text-gray-900' : 'text-gray-400 line-through')}>{type.name}</div>
                             {type.subcategory && (
                               <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-600">
                                 {type.subcategory}
@@ -463,19 +521,31 @@ export default function TiposPage() {
                             <span className={cn('w-1.5 h-1.5 rounded-full', PRIORITY_CONFIG[type.priority].dot)} />
                             {PRIORITY_CONFIG[type.priority].label}
                           </span>
-                          <span className="badge self-center bg-green-50 text-green-700 border border-green-200">
-                            <Check size={10} /> Ativo
-                          </span>
+                          {type.active ? (
+                            <span className="badge self-center bg-green-50 text-green-700 border border-green-200">
+                              <Check size={10} /> Ativo
+                            </span>
+                          ) : (
+                            <span className="badge self-center bg-gray-100 text-gray-500 border border-gray-200">Inativo</span>
+                          )}
                           <div className="flex items-center gap-1 self-center">
                             <button onClick={() => openEdit(type)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Editar">
                               <Pencil size={12} />
                             </button>
-                            <button onClick={() => toggleActive(type.id, type.active)} className="px-2 py-1 rounded-lg hover:bg-amber-50 text-gray-500 hover:text-amber-600 text-xs">
-                              Desativar
-                            </button>
-                            <button onClick={() => deleteType(type.id, type.name)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600">
-                              <X size={12} />
-                            </button>
+                            {type.active ? (
+                              <>
+                                <button onClick={() => toggleActive(type.id, type.active)} className="px-2 py-1 rounded-lg hover:bg-amber-50 text-gray-500 hover:text-amber-600 text-xs">
+                                  Desativar
+                                </button>
+                                <button onClick={() => deleteType(type.id, type.name)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600">
+                                  <X size={12} />
+                                </button>
+                              </>
+                            ) : (
+                              <button onClick={() => toggleActive(type.id, type.active)} className="px-2 py-1 rounded-lg hover:bg-green-50 text-[#185FA5] hover:text-green-700 text-xs">
+                                Reativar
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -485,27 +555,6 @@ export default function TiposPage() {
               )
             })}
           </div>
-
-          {/* Inativos */}
-          {inactiveTypes.length > 0 && (
-            <div className="card opacity-60">
-              <div className="card-header">
-                <span className="card-title text-gray-400">Tipos inativos</span>
-                <span className="text-xs text-gray-400">{inactiveTypes.length}</span>
-              </div>
-              {inactiveTypes.map(type => (
-                <div key={type.id} className="table-row grid" style={{ gridTemplateColumns: '1fr 120px 100px 100px 100px' }}>
-                  <div>
-                    <div className="text-sm text-gray-400 line-through">{type.name}</div>
-                    {type.category && <div className="text-xs text-gray-300">{type.category}{type.subcategory ? ' › ' + type.subcategory : ''}</div>}
-                  </div>
-                  <div className="text-xs text-gray-400 flex items-center gap-1 self-center"><Clock size={11} />{type.sla_hours}h</div>
-                  <span className={cn('badge self-center opacity-50', PRIORITY_CONFIG[type.priority].color)}>{PRIORITY_CONFIG[type.priority].label}</span>
-                  <span className="badge self-center bg-gray-100 text-gray-500 border border-gray-200">Inativo</span>
-                  <button onClick={() => toggleActive(type.id, type.active)} className="text-xs text-[#185FA5] hover:underline self-center">Reativar</button>
-                </div>
-              ))}
-            </div>
           )}
         </>
       )}
