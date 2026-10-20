@@ -43,6 +43,18 @@ function dentroDaFaixa(dias: number | null, faixa: string): boolean {
   return dias >= a && dias <= b
 }
 
+// Limites (vencimento) do mês atual ou anterior, em 'AAAA-MM-DD'.
+function mesVencimentoBounds(which: 'atual' | 'anterior'): { de: string; ate: string } {
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const hoje = new Date()
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth() + (which === 'anterior' ? -1 : 0), 1)
+  const ultimo = new Date(primeiro.getFullYear(), primeiro.getMonth() + 1, 0)
+  return {
+    de:  `${primeiro.getFullYear()}-${p2(primeiro.getMonth() + 1)}-01`,
+    ate: `${ultimo.getFullYear()}-${p2(ultimo.getMonth() + 1)}-${p2(ultimo.getDate())}`,
+  }
+}
+
 const COLS = '1fr 120px 80px 95px 105px 110px 100px 120px 90px 44px'
 
 export default function InadimplenciaPage() {
@@ -59,6 +71,7 @@ export default function InadimplenciaPage() {
 
   const [fParceiro, setFParceiro] = useState('')
   const [fSituacao, setFSituacao] = useState('em_aberto')
+  const [fMes, setFMes] = useState('')          // '' = todos · 'atual' · 'anterior'
   const [fDe, setFDe] = useState('')
   const [fAte, setFAte] = useState('')
   const [fFaixa, setFFaixa] = useState('')
@@ -109,6 +122,10 @@ export default function InadimplenciaPage() {
       setLoading(true)
       let q = supabase.from('inadimplencias').select('*').order('vencimento', { ascending: true }).limit(2000)
       if (fParceiro) q = q.eq('parceiro_planilha', fParceiro)
+      if (fMes === 'atual' || fMes === 'anterior') {
+        const { de, ate } = mesVencimentoBounds(fMes)
+        q = q.gte('vencimento', de).lte('vencimento', ate)
+      }
       if (fDe) q = q.gte('vencimento', fDe)
       if (fAte) q = q.lte('vencimento', fAte)
       const { data } = await q
@@ -116,7 +133,7 @@ export default function InadimplenciaPage() {
       setLoading(false)
     }
     load()
-  }, [fParceiro, fDe, fAte, reloadKey])
+  }, [fParceiro, fMes, fDe, fAte, reloadKey])
 
   // Base para os totalizadores: aplica parceiro/período (servidor) + atraso/busca
   // (cliente), mas NÃO a situação.
@@ -206,6 +223,11 @@ export default function InadimplenciaPage() {
         </select>
         <select className="select w-44" value={fFaixa} onChange={e => setFFaixa(e.target.value)}>
           {FAIXAS_DIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
+        <select className="select w-40" value={fMes} onChange={e => setFMes(e.target.value)} title="Atalho de mês de vencimento">
+          <option value="">Mês: todos</option>
+          <option value="atual">Mês atual</option>
+          <option value="anterior">Mês anterior</option>
         </select>
         <label className="inline-flex items-center gap-1.5 text-xs text-gray-500">
           Venc. de <input type="date" className="input w-40" value={fDe} onChange={e => setFDe(e.target.value)} />
